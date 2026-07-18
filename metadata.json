@@ -1,0 +1,6 @@
+{
+  "name": "Middha Ventures Investment CRM",
+  "description": "A secure, production-grade investment CRM and startup application portal for Middha Ventures.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

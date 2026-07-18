@@ -1,0 +1,563 @@
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, FileDown, Plus, Trash2, Send, Clock, RefreshCw } from 'lucide-react';
+import { Startup, Note, PipelineStatus } from '../types';
+import { dbService } from '../services/dbService';
+import { safeHref } from '../services/securityUtils';
+
+interface StartupDetailProps {
+  startup: Startup;
+  onClose: () => void;
+  onUpdateStatus: (status: PipelineStatus) => void;
+  onDelete: () => void;
+  currentUser: { id: string; email: string };
+}
+
+export default function StartupDetail({
+  startup,
+  onClose,
+  onUpdateStatus,
+  onDelete,
+  currentUser,
+}: StartupDetailProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'notes'>('overview');
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [cachedSignedUrl, setCachedSignedUrl] = useState<string | null>(null);
+  const [signedUrlExpiry, setSignedUrlExpiry] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [startup.id]);
+
+  const fetchNotes = async () => {
+    setNotesLoading(true);
+    try {
+      const notesList = await dbService.getNotes(startup.id);
+      setNotes(notesList);
+    } catch (e) {
+      console.error('Error fetching notes:', e);
+    } finally {
+      setNotesLoading(false);
+    }
+  };
+
+  const handleDownloadPitchDeck = async () => {
+    setIsDownloading(true);
+    try {
+      // Check if we have a valid non-expired signed URL cached in state (with 5 minutes safety threshold)
+      if (cachedSignedUrl && signedUrlExpiry && Date.now() < signedUrlExpiry - 300000) {
+        // noopener,noreferrer prevents the opened document from reaching back
+        // via window.opener (reverse tabnabbing), in case a malicious file
+        // was ever stored under this path.
+        window.open(cachedSignedUrl, '_blank', 'noopener,noreferrer');
+        setIsDownloading(false);
+        return;
+      }
+
+      const signedUrl = await dbService.getSignedUrl(startup.pitch_deck_path);
+      if (signedUrl) {
+        setCachedSignedUrl(signedUrl);
+        // Expiry from Supabase Storage is configured to 3600 seconds (1 hour)
+        setSignedUrlExpiry(Date.now() + 3600000);
+        window.open(signedUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        alert('Could not retrieve a valid download link.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error fetching signed URL for pitch deck.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNoteContent.trim()) return;
+
+    setIsSubmittingNote(true);
+    try {
+      const note = await dbService.addNote(startup.id, newNoteContent, currentUser);
+      if (note) {
+        setNotes((prev) => [note, ...prev]);
+        setNewNoteContent('');
+      }
+    } catch (err) {
+      console.error('Failed to add note:', err);
+      alert('Failed to save your note. Please try again.');
+    } finally {
+      setIsSubmittingNote(false);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!confirm('Are you sure you want to delete this reviewer note?')) return;
+    try {
+      const success = await dbService.deleteNote(noteId, currentUser);
+      if (success) {
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete note.');
+    }
+  };
+
+  const handleDeleteStartup = async () => {
+    setIsDeleting(true);
+    try {
+      const success = await dbService.deleteStartup(startup.id, currentUser);
+      if (success) {
+        onDelete();
+        onClose();
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete startup. Verify permissions.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const pipelineStatuses: PipelineStatus[] = [
+    'New',
+    'Screening',
+    'Meeting',
+    'Due Diligence',
+    'Approved',
+    'Rejected',
+    'Archived',
+  ];
+
+  const getCurrencySymbol = (curr: string) => {
+    switch (curr) {
+      case 'USD': return '$';
+      case 'EUR': return '€';
+      default: return '₹';
+    }
+  };
+
+  const currencySymbol = getCurrencySymbol(startup.currency || 'INR');
+  const currencyCode = startup.currency || 'INR';
+
+  return (
+    <>
+      {/* Backdrop overlay */}
+      <div
+        className="fixed inset-0 bg-black/30 backdrop-blur-xs z-40 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* Side Drawer Panel */}
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white border-l border-neutral-200 shadow-2xl z-50 flex flex-col h-full"
+        id="startup-drawer"
+      >
+        {/* Drawer Header */}
+        <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+          <div>
+            <h2 className="text-xl font-semibold text-neutral-900 tracking-tight flex items-center gap-2 mt-0.5">
+              {startup.company_name}
+              {startup.website && (
+                <a
+                  href={safeHref(startup.website)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-neutral-400 hover:text-neutral-900 inline-flex"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Status bar selector */}
+        <div className="px-6 py-3.5 border-b border-neutral-100 bg-neutral-50/20 grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Status:</span>
+            <select
+              value={startup.status}
+              onChange={(e) => onUpdateStatus(e.target.value as PipelineStatus)}
+              className="px-3 py-1.5 bg-white border border-neutral-200 hover:border-neutral-900 text-xs font-semibold rounded-lg outline-none cursor-pointer text-neutral-800"
+              id="status-select-drawer"
+            >
+              {pipelineStatuses.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex justify-start sm:justify-end gap-2">
+            <button
+              onClick={handleDownloadPitchDeck}
+              disabled={isDownloading}
+              className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 disabled:bg-neutral-400 text-white font-medium text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors shadow-xs"
+              id="btn-download-pitch-deck"
+            >
+              {isDownloading ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5" />
+              )}
+              Download Pitch Deck
+            </button>
+            
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-1.5 bg-red-50 text-red-600 border border-red-150 hover:bg-red-100 rounded-lg transition-colors"
+              title="Delete Application"
+              id="btn-delete-startup"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="px-6 border-b border-neutral-100 flex gap-6 text-sm">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`py-3 font-medium transition-all border-b-2 ${
+              activeTab === 'overview'
+                ? 'border-neutral-900 text-neutral-900 font-semibold'
+                : 'border-transparent text-neutral-400 hover:text-neutral-900'
+            }`}
+            id="tab-detail-overview"
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('notes')}
+            className={`py-3 font-medium transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'notes'
+                ? 'border-neutral-900 text-neutral-900 font-semibold'
+                : 'border-transparent text-neutral-400 hover:text-neutral-900'
+            }`}
+            id="tab-detail-notes"
+          >
+            Reviewer Notes
+            <span className="px-1.5 py-0.5 bg-neutral-100 text-[10px] rounded-full text-neutral-600 font-bold">
+              {notes.length}
+            </span>
+          </button>
+        </div>
+
+        {/* Tab Content Box */}
+        <div className="flex-1 overflow-y-auto px-6 py-6" id="drawer-content">
+          {activeTab === 'overview' ? (
+            <div className="space-y-8 text-sm">
+              {/* One liner & description */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
+                  Pitch & Executive Summary
+                </h3>
+                <p className="font-medium text-neutral-900 text-base leading-relaxed">
+                  {startup.one_line_pitch}
+                </p>
+                <p className="text-neutral-600 leading-relaxed bg-neutral-50 border border-neutral-200/50 p-4 rounded-xl mt-3">
+                  {startup.description}
+                </p>
+              </div>
+
+              {/* Financials & Raising Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                    TARGET RAISE
+                  </span>
+                  <span className="text-base font-semibold text-neutral-900 font-mono">
+                    {currencySymbol}{Number(startup.target_raise).toLocaleString()} {currencyCode}
+                  </span>
+                </div>
+                <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                    PRIOR CAPITAL
+                  </span>
+                  <span className="text-base font-semibold text-neutral-900 font-mono">
+                    {startup.funding_raised ? `${currencySymbol}${Number(startup.funding_raised).toLocaleString()} ${currencyCode}` : 'Nil'}
+                  </span>
+                </div>
+                <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                    STAGE
+                  </span>
+                  <span className="text-base font-semibold text-neutral-900">
+                    {startup.stage}
+                  </span>
+                </div>
+              </div>
+
+              {/* Revenue & Financial Status */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
+                  Revenue & Financial Status
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                      REVENUE STATUS
+                    </span>
+                    <span className="text-sm font-semibold text-neutral-900">
+                      {startup.revenue_status || 'Pre-Revenue'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                      REVENUE Generated in FY 2024–25
+                    </span>
+                    <span className="text-base font-semibold text-neutral-900 font-mono">
+                      {startup.revenue_status === 'Revenue Generating' && startup.revenue_generated_fy25
+                        ? `${currencySymbol}${Number(startup.revenue_generated_fy25).toLocaleString()} ${currencyCode}`
+                        : 'Pre-Revenue'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                      FY REVENUE
+                    </span>
+                    <span className="text-base font-semibold text-neutral-900 font-mono">
+                      {startup.current_financial_year_revenue 
+                        ? `${currencySymbol}${Number(startup.current_financial_year_revenue).toLocaleString()} ${currencyCode}`
+                        : `${currencySymbol}0 ${currencyCode}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Founder profile info */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
+                  Founding Team Contacts
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <User className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900">{startup.founder_name}</p>
+                      <p className="text-[10px] text-neutral-400">Primary Founder</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <Users className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900">Size: {startup.team_size} FTE</p>
+                      <p className="text-[10px] text-neutral-400">Company Size</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <Clock className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900 truncate">{startup.founder_email}</p>
+                      <p className="text-[10px] text-neutral-400">Founder Email</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <ExternalLink className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      {startup.founder_linkedin ? (
+                        <a
+                          href={safeHref(startup.founder_linkedin)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-neutral-900 hover:underline inline-flex items-center gap-1"
+                        >
+                          LinkedIn Profile
+                        </a>
+                      ) : (
+                        <span className="font-medium text-neutral-400">Not Provided</span>
+                      )}
+                      <p className="text-[10px] text-neutral-400">Founder Profile</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1 mt-2">
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest font-mono">
+                    Team Background & Pedigree
+                  </span>
+                  <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap pl-1 border-l-2 border-neutral-200">
+                    {startup.team_background}
+                  </p>
+                </div>
+              </div>
+
+              {/* Traction section */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
+                  Metrics & Traction
+                </h3>
+                <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-4 rounded-xl">
+                  {startup.traction}
+                </p>
+              </div>
+
+              {/* Demo video link */}
+              {startup.demo_video && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
+                    Product Walkthrough
+                  </h3>
+                  <a
+                    href={safeHref(startup.demo_video)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-neutral-700 hover:text-neutral-900 font-medium border border-neutral-200 hover:border-neutral-300 px-4 py-2 bg-white hover:bg-neutral-50 rounded-lg shadow-2xs"
+                  >
+                    Watch Product Demo
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              )}
+
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Add Note Form */}
+              <form onSubmit={handleAddNote} className="space-y-3 bg-neutral-50 border border-neutral-200/60 p-4 rounded-xl">
+                <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                  Add Reviewer Note
+                </h4>
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    placeholder="Enter investment review, due diligence summary, checklist item, or general feedback..."
+                    value={newNoteContent}
+                    onChange={(e) => setNewNoteContent(e.target.value)}
+                    className="w-full text-xs p-3 bg-white border border-neutral-200 focus:border-neutral-900 rounded-lg outline-none resize-none"
+                    id="reviewer-note-input"
+                  />
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    Signed as: {currentUser.email}
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingNote || !newNoteContent.trim()}
+                    className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 disabled:bg-neutral-300 text-white font-medium text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors"
+                    id="btn-submit-note"
+                  >
+                    {isSubmittingNote ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Send className="h-3 w-3" />
+                    )}
+                    Save Note
+                  </button>
+                </div>
+              </form>
+
+              {/* Notes List */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                  Reviewer Logs ({notes.length})
+                </h4>
+
+                {notesLoading ? (
+                  <div className="text-center py-8 text-neutral-400 text-xs font-mono">
+                    Loading logs...
+                  </div>
+                ) : notes.length === 0 ? (
+                  <div className="text-center py-12 border border-dashed border-neutral-200 rounded-xl text-neutral-400 text-xs">
+                    No reviewer logs written yet. Write the first note above.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {notes.map((note) => (
+                      <div
+                        key={note.id}
+                        className="p-4 bg-white border border-neutral-200/70 rounded-xl space-y-2 relative group hover:border-neutral-350 transition-all shadow-3xs"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs font-semibold text-neutral-800 block">
+                              {note.author_email}
+                            </span>
+                            <span className="text-[10px] font-mono text-neutral-400">
+                              {new Date(note.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          
+                          <button
+                            onClick={() => handleDeleteNote(note.id)}
+                            className="p-1 hover:bg-neutral-100 text-neutral-400 hover:text-red-600 rounded-md transition-colors"
+                            title="Delete Note"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-xs text-neutral-600 whitespace-pre-wrap leading-relaxed">
+                          {note.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-md bg-white border border-neutral-200 rounded-xl p-6 shadow-2xl space-y-4"
+          >
+            <h3 className="text-lg font-bold text-neutral-900 tracking-tight">
+              Delete Application Entirely?
+            </h3>
+            <p className="text-neutral-500 text-xs leading-relaxed">
+              This action is permanent and irreversible. It will completely delete{' '}
+              <span className="font-semibold text-neutral-800">{startup.company_name}</span>,
+              associated reviewer notes, and storage records from the CRM.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3 py-1.5 border border-neutral-200 text-neutral-600 hover:bg-neutral-50 rounded-lg text-xs font-semibold transition-colors"
+                id="btn-cancel-delete"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteStartup}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-neutral-300 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                id="btn-confirm-delete"
+              >
+                {isDeleting ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                Confirm Permanent Delete
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </>
+  );
+}
