@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -105,24 +106,30 @@ async function startServer() {
     next();
   });
 
-  // Basic in-memory rate limiter for admin creation with proactive eviction
-  const adminRegisterLimiter = new Map<string, { count: number; resetAt: number }>();
+  // Basic in-memory rate limiter with proactive eviction. Separate Map instances are used
+  // per route family so admin-invite actions and public form-verification attempts don't
+  // share (and prematurely exhaust) the same counter.
+  const adminInviteLimiter = new Map<string, { count: number; resetAt: number }>();
+  const turnstileLimiter = new Map<string, { count: number; resetAt: number }>();
 
-  function checkRateLimit(ip: string): { allowed: boolean; resetAt?: number } {
+  function checkRateLimit(
+    store: Map<string, { count: number; resetAt: number }>,
+    ip: string,
+    limit: number,
+    timeframeMs: number
+  ): { allowed: boolean; resetAt?: number } {
     const now = Date.now();
-    const timeframe = 15 * 60 * 1000; // 15 minutes
-    const limit = 10;
 
     // Proactive eviction of expired entries to prevent memory growth
-    for (const [key, val] of adminRegisterLimiter.entries()) {
+    for (const [key, val] of store.entries()) {
       if (now > val.resetAt) {
-        adminRegisterLimiter.delete(key);
+        store.delete(key);
       }
     }
 
-    const record = adminRegisterLimiter.get(ip);
+    const record = store.get(ip);
     if (!record) {
-      adminRegisterLimiter.set(ip, { count: 1, resetAt: now + timeframe });
+      store.set(ip, { count: 1, resetAt: now + timeframeMs });
       return { allowed: true };
     }
 
@@ -134,158 +141,413 @@ async function startServer() {
     return { allowed: true };
   }
 
+  function getClientIp(req: express.Request): string {
+    const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+    return rawIp.split(',')[0].trim();
+  }
+
+  // Verifies a Cloudflare Turnstile token against Cloudflare's siteverify API.
+  // This closes the gap where the client only checked for a non-empty token
+  // locally without ever proving it server-side.
+  async function verifyTurnstileToken(token: string, ip: string): Promise<{ success: boolean; error?: string }> {
+    const secret = process.env.TURNSTILE_SECRET_KEY;
+    if (!secret) {
+      console.error('[Turnstile] TURNSTILE_SECRET_KEY is not configured on the server.');
+      return { success: false, error: 'Security verification is not configured on the server.' };
+    }
+
+    try {
+      const body = new URLSearchParams();
+      body.append('secret', secret);
+      body.append('response', token);
+      if (ip && ip !== 'unknown') {
+        body.append('remoteip', ip);
+      }
+
+      const verifyRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      const result: any = await verifyRes.json();
+      if (!result.success) {
+        return { success: false, error: 'Security verification failed. Please refresh and try again.' };
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Turnstile] Verification request failed:', err.message);
+      return { success: false, error: 'Security verification could not be completed. Please try again.' };
+    }
+  }
+
+  // Thrown by requireAdmin() below and translated into an HTTP response by each
+  // route's existing try/catch block (avoids relying on discriminated-union
+  // narrowing, which this project's tsconfig doesn't reliably support since
+  // it doesn't enable strictNullChecks).
+  class AdminAuthError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  }
+
+  // Verifies the caller is an authenticated, currently-registered administrator.
+  // Shared by every privileged /api/crm-service/* route below. Throws AdminAuthError
+  // (with an HTTP status) on any failure; resolves with the caller's identity and a
+  // ready-to-use service-role client on success.
+  async function requireAdmin(req: express.Request): Promise<{ user: { id: string; email: string }; adminClient: any }> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new AdminAuthError(401, 'Unauthorized. Authorization token is missing.');
+    }
+
+    const token = authHeader.substring(7);
+    const pubClient = getPublicSupabase();
+
+    const { data: { user }, error: authError } = await pubClient.auth.getUser(token);
+    if (authError || !user) {
+      throw new AdminAuthError(401, 'Unauthorized. Invalid authentication session.');
+    }
+
+    let adminClient;
+    try {
+      adminClient = getAdminSupabase();
+    } catch (err: any) {
+      throw new AdminAuthError(500, err.message);
+    }
+
+    const { data: adminRecord, error: adminQueryError } = await adminClient
+      .from('admins')
+      .select('id, email')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (adminQueryError || !adminRecord) {
+      throw new AdminAuthError(403, 'Forbidden. Only registered administrators can perform this action.');
+    }
+
+    return { user: { id: user.id, email: adminRecord.email || user.email }, adminClient };
+  }
+
+  // Resolves the public-facing origin of this app (used to build the invite redirect URL),
+  // honoring the trust-proxy / X-Forwarded-* headers already relied on elsewhere in this file.
+  function getAppOrigin(req: express.Request): string {
+    return `${req.protocol}://${req.get('host')}`;
+  }
+
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
 
-  // Secure Admin creation route
-  app.post('/api/crm-service/register-administrator', async (req, res) => {
-    console.log('[Server API] Received request to /api/crm-service/register-administrator');
+  // Public route: verify a Cloudflare Turnstile token before the client is allowed to
+  // proceed with writing a startup application directly to Supabase.
+  app.post('/api/verify-turnstile', async (req, res) => {
     try {
-      // 0. Apply rate limit check
-      const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
-      const ip = rawIp.split(',')[0].trim();
-
-      const limitCheck = checkRateLimit(ip);
+      const ip = getClientIp(req);
+      const limitCheck = checkRateLimit(turnstileLimiter, ip, 20, 15 * 60 * 1000);
       if (!limitCheck.allowed) {
         const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
-        return res.status(429).json({
-          error: `Too many administrator registration attempts from this IP. Please try again in ${minutesLeft} minutes.`
-        });
+        return res.status(429).json({ success: false, error: `Too many verification attempts. Please try again in ${minutesLeft} minutes.` });
       }
 
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.warn('[Server API] Missing or invalid Authorization header');
-        return res.status(401).json({ error: 'Unauthorized. Authorization token is missing.' });
+      const { token } = req.body;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ success: false, error: 'Missing security verification token.' });
       }
 
-      const token = authHeader.substring(7);
-      const pubClient = getPublicSupabase();
+      const result = await verifyTurnstileToken(token, ip);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Server API] Error verifying Turnstile token:', error);
+      return res.status(500).json({ success: false, error: error.message || 'An unexpected server error occurred.' });
+    }
+  });
 
-      // 1. Verify token with Supabase Auth
-      const { data: { user }, error: authError } = await pubClient.auth.getUser(token);
-      if (authError || !user) {
-        console.warn('[Server API] Token verification failed:', authError?.message);
-        return res.status(401).json({ error: 'Unauthorized. Invalid authentication session.' });
+  // Invite a new administrator by email. Creates the auth user via Supabase's invite
+  // API (which sends the actual invite email through the project's configured Auth SMTP)
+  // and records a pending row in public.admin_invites. The invitee is NOT added to
+  // public.admins until they accept the invite (see /accept-admin-invite below).
+  app.post('/api/crm-service/invite-administrator', async (req, res) => {
+    try {
+      const ip = getClientIp(req);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      if (!limitCheck.allowed) {
+        const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
+        return res.status(429).json({ error: `Too many administrator invitation attempts from this IP. Please try again in ${minutesLeft} minutes.` });
       }
 
-      console.log('[Server API] Token verified successfully');
+      const { user, adminClient } = await requireAdmin(req);
 
-      // Initialize admin client securely to query public.admins (RLS-bypass)
-      let adminClient;
-      try {
-        adminClient = getAdminSupabase();
-      } catch (err: any) {
-        console.error('[Server API] Failed to initialize admin client:', err.message);
-        return res.status(500).json({ error: err.message });
+      const { email } = req.body;
+      if (!email || typeof email !== 'string' || !email.trim()) {
+        return res.status(400).json({ error: 'Email address is required.' });
       }
-
-      // 2. Verify that the operating user exists in public.admins using service-role client
-      const { data: adminRecord, error: adminQueryError } = await adminClient
-        .from('admins')
-        .select('id, email')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (adminQueryError || !adminRecord) {
-        console.warn('[Server API] Requester is not an authorized administrator in public.admins. Error:', adminQueryError?.message);
-        return res.status(403).json({ error: 'Forbidden. Only registered administrators can create new admin accounts.' });
-      }
-
-      console.log('[Server API] Requester confirmed as authorized administrator');
-
-      // 3. Extract parameters
-      const { email, password } = req.body;
-      if (!email || !password) {
-        console.warn('[Server API] Missing email or password in request body');
-        return res.status(400).json({ error: 'Both email and password are required.' });
-      }
-
       const trimmedEmail = email.trim().toLowerCase();
-      if (password.length < 6) {
-        console.warn('[Server API] Password is too short');
-        return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
-      }
 
-      console.log('[Server API] Initiating admin creation');
-
-
-      // 5. Pre-emptively verify if email already registered in admins table
       const { data: existingAdmin } = await adminClient
         .from('admins')
         .select('id')
         .eq('email', trimmedEmail)
         .maybeSingle();
-
       if (existingAdmin) {
-        console.warn('[Server API] Admin email already registered in public.admins');
         return res.status(400).json({ error: `An administrator account with email "${trimmedEmail}" already exists.` });
       }
 
-      // 6. Create user in Supabase Auth via official Admin API
-      console.log('[Server API] Calling auth.admin.createUser');
-      const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
+      const { data: existingInvite } = await adminClient
+        .from('admin_invites')
+        .select('id')
+        .eq('email', trimmedEmail)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (existingInvite) {
+        return res.status(400).json({ error: `An invitation is already pending for "${trimmedEmail}". Resend or cancel it instead.` });
+      }
+
+      const redirectTo = `${getAppOrigin(req)}/admin/accept-invite`;
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(trimmedEmail, { redirectTo });
+      if (inviteError || !inviteData || !inviteData.user) {
+        console.error('[Server API] inviteUserByEmail failed:', inviteError?.message);
+        return res.status(400).json({ error: inviteError?.message || 'Failed to send administrator invitation.' });
+      }
+
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: insertError } = await adminClient.from('admin_invites').insert({
         email: trimmedEmail,
-        password: password,
-        email_confirm: true
+        invited_user_id: inviteData.user.id,
+        invited_by: user.id,
+        invited_by_email: user.email,
+        status: 'pending',
+        expires_at: expiresAt
       });
-
-      if (createError || !newUser || !newUser.user) {
-        console.error('[Server API] auth.admin.createUser failed:', createError?.message);
-        return res.status(400).json({ error: createError?.message || 'Failed to create auth user.' });
-      }
-
-      const newUserId = newUser.user.id;
-      console.log('[Server API] Auth user created successfully');
-
-      // 7. Insert matching record into public.admins
-      console.log('[Server API] Inserting record into public.admins');
-      const { error: insertError } = await adminClient
-        .from('admins')
-        .upsert({
-          id: newUserId,
-          email: trimmedEmail
-        });
-
       if (insertError) {
-        console.error('[Server API] Inserting into public.admins failed:', insertError.message);
-        // Roll back the auth user creation if public.admins registration fails
-        console.log('[Server API] Rolling back auth user creation');
-        await adminClient.auth.admin.deleteUser(newUserId);
-        return res.status(500).json({ error: `Failed to insert user into public.admins table: ${insertError.message}` });
+        console.error('[Server API] Failed to record admin_invites row:', insertError.message);
+        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        return res.status(500).json({ error: `Failed to record invitation: ${insertError.message}` });
       }
 
-      console.log('[Server API] Record inserted into public.admins successfully.');
-
-      // 8. Record audit log entry
-      const { error: logError } = await adminClient
-        .from('audit_logs')
-        .insert({
-          user_id: user.id,
-          user_email: adminRecord.email || user.email,
-          action: 'Admin account created',
-          target_id: newUserId,
-          target_name: trimmedEmail,
-          details: { created_by: user.id, email: trimmedEmail }
-        });
-
-      if (logError) {
-        console.warn('Audit logging failed for admin creation:', logError.message);
-      }
-
-      console.log('[Server API] Admin creation transaction complete.');
-      return res.json({
-        success: true,
-        user: {
-          id: newUserId,
-          email: trimmedEmail
-        }
+      await adminClient.from('audit_logs').insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: 'Administrator invited',
+        target_id: inviteData.user.id,
+        target_name: trimmedEmail,
+        details: { invited_by: user.id, email: trimmedEmail }
       });
 
+      return res.json({ success: true });
     } catch (error: any) {
-      console.error('Error in administrator creation:', error);
+      if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+      console.error('Error in administrator invitation:', error);
+      return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+    }
+  });
+
+  // Cancel a pending administrator invitation: removes the unconfirmed auth user
+  // (they never became an admin, so this is safe) and marks the invite revoked.
+  app.post('/api/crm-service/cancel-admin-invite', async (req, res) => {
+    try {
+      const { user, adminClient } = await requireAdmin(req);
+
+      const { inviteId } = req.body;
+      if (!inviteId) return res.status(400).json({ error: 'inviteId is required.' });
+
+      const { data: invite, error: fetchError } = await adminClient
+        .from('admin_invites')
+        .select('id, email, invited_user_id, status')
+        .eq('id', inviteId)
+        .maybeSingle();
+
+      if (fetchError || !invite || invite.status !== 'pending') {
+        return res.status(400).json({ error: 'No pending invitation was found for that record.' });
+      }
+
+      if (invite.invited_user_id) {
+        await adminClient.auth.admin.deleteUser(invite.invited_user_id);
+      }
+
+      const { error: updateError } = await adminClient
+        .from('admin_invites')
+        .update({ status: 'revoked' })
+        .eq('id', inviteId);
+      if (updateError) {
+        return res.status(500).json({ error: `Failed to revoke invitation: ${updateError.message}` });
+      }
+
+      await adminClient.from('audit_logs').insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: 'Administrator invite cancelled',
+        target_id: invite.invited_user_id || inviteId,
+        target_name: invite.email,
+        details: { cancelled_by: user.id, email: invite.email }
+      });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+      console.error('Error cancelling administrator invitation:', error);
+      return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+    }
+  });
+
+  // Resend a pending administrator invitation: discards the old unconfirmed auth user
+  // and invite row, then issues a brand new invite (fresh email, fresh 7-day expiry).
+  app.post('/api/crm-service/resend-admin-invite', async (req, res) => {
+    try {
+      const ip = getClientIp(req);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      if (!limitCheck.allowed) {
+        const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
+        return res.status(429).json({ error: `Too many administrator invitation attempts from this IP. Please try again in ${minutesLeft} minutes.` });
+      }
+
+      const { user, adminClient } = await requireAdmin(req);
+
+      const { inviteId } = req.body;
+      if (!inviteId) return res.status(400).json({ error: 'inviteId is required.' });
+
+      const { data: invite, error: fetchError } = await adminClient
+        .from('admin_invites')
+        .select('id, email, invited_user_id, status')
+        .eq('id', inviteId)
+        .maybeSingle();
+
+      if (fetchError || !invite || invite.status !== 'pending') {
+        return res.status(400).json({ error: 'No pending invitation was found for that record.' });
+      }
+
+      // Issue the replacement invite BEFORE tearing down the old one, so a failure here
+      // (rate limit, transient network error) leaves the original invite intact and
+      // resendable, instead of destroying it with nothing to replace it.
+      const redirectTo = `${getAppOrigin(req)}/admin/accept-invite`;
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(invite.email, { redirectTo });
+      if (inviteError || !inviteData || !inviteData.user) {
+        console.error('[Server API] inviteUserByEmail (resend) failed:', inviteError?.message);
+        return res.status(400).json({ error: inviteError?.message || 'Failed to resend administrator invitation. The original invitation is still active.' });
+      }
+
+      if (invite.invited_user_id) {
+        await adminClient.auth.admin.deleteUser(invite.invited_user_id);
+      }
+      await adminClient.from('admin_invites').update({ status: 'revoked' }).eq('id', inviteId);
+
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: insertError } = await adminClient.from('admin_invites').insert({
+        email: invite.email,
+        invited_user_id: inviteData.user.id,
+        invited_by: user.id,
+        invited_by_email: user.email,
+        status: 'pending',
+        expires_at: expiresAt
+      });
+      if (insertError) {
+        console.error('[Server API] Failed to record resent admin_invites row:', insertError.message);
+        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        return res.status(500).json({ error: `Failed to record invitation: ${insertError.message}` });
+      }
+
+      await adminClient.from('audit_logs').insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: 'Administrator invite resent',
+        target_id: inviteData.user.id,
+        target_name: invite.email,
+        details: { resent_by: user.id, email: invite.email }
+      });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+      console.error('Error resending administrator invitation:', error);
+      return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+    }
+  });
+
+  // Called by the INVITED USER after they've followed the invite link and set their own
+  // password. Unlike the routes above, the caller is NOT expected to already be an admin —
+  // authorization instead comes from having a pending admin_invites row that matches
+  // their own auth user id, which only exists if a real administrator invited them.
+  app.post('/api/crm-service/accept-admin-invite', async (req, res) => {
+    try {
+      const ip = getClientIp(req);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      if (!limitCheck.allowed) {
+        const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
+        return res.status(429).json({ error: `Too many attempts. Please try again in ${minutesLeft} minutes.` });
+      }
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized. Authorization token is missing.' });
+      }
+      const token = authHeader.substring(7);
+      const pubClient = getPublicSupabase();
+      const { data: { user }, error: authError } = await pubClient.auth.getUser(token);
+      if (authError || !user) {
+        return res.status(401).json({ error: 'Unauthorized. Invalid authentication session.' });
+      }
+
+      let adminClient;
+      try {
+        adminClient = getAdminSupabase();
+      } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const { data: existingAdmin } = await adminClient
+        .from('admins')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (existingAdmin) {
+        return res.status(400).json({ error: 'This account is already an administrator.' });
+      }
+
+      const { data: invite, error: inviteError } = await adminClient
+        .from('admin_invites')
+        .select('id, email, invited_by, invited_by_email, status, expires_at')
+        .eq('invited_user_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (inviteError || !invite) {
+        return res.status(400).json({ error: 'No pending invitation was found for this account. Ask an administrator to send a new one.' });
+      }
+      if (new Date(invite.expires_at).getTime() < Date.now()) {
+        return res.status(400).json({ error: 'This invitation has expired. Ask an administrator to resend it.' });
+      }
+
+      const { error: insertError } = await adminClient.from('admins').insert({
+        id: user.id,
+        email: user.email
+      });
+      if (insertError) {
+        console.error('[Server API] Failed to insert accepted admin into public.admins:', insertError.message);
+        return res.status(500).json({ error: `Failed to finalize administrator account: ${insertError.message}` });
+      }
+
+      await adminClient
+        .from('admin_invites')
+        .update({ status: 'accepted', accepted_at: new Date().toISOString() })
+        .eq('id', invite.id);
+
+      await adminClient.from('audit_logs').insert({
+        user_id: user.id,
+        user_email: user.email,
+        action: 'Admin account created',
+        target_id: user.id,
+        target_name: user.email,
+        details: { invited_by: invite.invited_by, invited_by_email: invite.invited_by_email, email: user.email }
+      });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error accepting administrator invitation:', error);
       return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
     }
   });

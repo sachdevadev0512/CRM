@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, FileDown, Plus, Trash2, Send, Clock, RefreshCw } from 'lucide-react';
-import { Startup, Note, PipelineStatus } from '../types';
+import { Startup, Note, PipelineStatus, AuditLog } from '../types';
 import { dbService } from '../services/dbService';
 import { safeHref } from '../services/securityUtils';
 
@@ -11,6 +11,9 @@ interface StartupDetailProps {
   onUpdateStatus: (status: PipelineStatus) => void;
   onDelete: () => void;
   currentUser: { id: string; email: string };
+  // Bumped by the parent whenever a note/status change is made from outside this
+  // drawer (e.g. the status-note popup) so the activity feed knows to refetch.
+  activityRefreshKey?: number;
 }
 
 export default function StartupDetail({
@@ -19,9 +22,12 @@ export default function StartupDetail({
   onUpdateStatus,
   onDelete,
   currentUser,
+  activityRefreshKey,
 }: StartupDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'notes'>('overview');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'notes'>('all');
   const [notes, setNotes] = useState<Note[]>([]);
+  const [statusHistory, setStatusHistory] = useState<AuditLog[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -32,18 +38,28 @@ export default function StartupDetail({
   const [signedUrlExpiry, setSignedUrlExpiry] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchNotes();
-  }, [startup.id]);
+    fetchActivity();
+    // Re-fetch whenever the status changes too, so a status update made from this
+    // same drawer (or the pipeline board, once this startup is re-selected) shows
+    // up in the activity feed without needing to close and reopen the drawer.
+    // activityRefreshKey covers notes/status-changes saved from OUTSIDE this drawer
+    // (the status-note popup), which this component would otherwise have no way
+    // of knowing about since that's a separate part of the tree.
+  }, [startup.id, startup.status, activityRefreshKey]);
 
-  const fetchNotes = async () => {
-    setNotesLoading(true);
+  const fetchActivity = async (silent = false) => {
+    if (!silent) setNotesLoading(true);
     try {
-      const notesList = await dbService.getNotes(startup.id);
+      const [notesList, auditLogs] = await Promise.all([
+        dbService.getNotes(startup.id),
+        dbService.getAuditLogsForTarget(startup.id)
+      ]);
       setNotes(notesList);
+      setStatusHistory(auditLogs.filter(log => (log.action || '').toLowerCase().includes('status changed')));
     } catch (e) {
-      console.error('Error fetching notes:', e);
+      console.error('Error fetching activity:', e);
     } finally {
-      setNotesLoading(false);
+      if (!silent) setNotesLoading(false);
     }
   };
 
@@ -257,9 +273,9 @@ export default function StartupDetail({
             }`}
             id="tab-detail-notes"
           >
-            Reviewer Notes
+            Activity & Notes
             <span className="px-1.5 py-0.5 bg-neutral-100 text-[10px] rounded-full text-neutral-600 font-bold">
-              {notes.length}
+              {notes.length + statusHistory.length}
             </span>
           </button>
         </div>
@@ -469,53 +485,113 @@ export default function StartupDetail({
                 </div>
               </form>
 
-              {/* Notes List */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-wider">
-                  Reviewer Logs ({notes.length})
-                </h4>
+              {/* Combined Activity Feed: reviewer notes + status change history, merged
+                  chronologically so every admin sees exactly who reviewed this applicant,
+                  what they wrote, and every status change made -- all in one place. */}
+              {(() => {
+                type ActivityItem =
+                  | { kind: 'note'; id: string; created_at: string; note: Note }
+                  | { kind: 'status'; id: string; created_at: string; log: AuditLog };
 
-                {notesLoading ? (
-                  <div className="text-center py-8 text-neutral-400 text-xs font-mono">
-                    Loading logs...
-                  </div>
-                ) : notes.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-neutral-200 rounded-xl text-neutral-400 text-xs">
-                    No reviewer logs written yet. Write the first note above.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {notes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="p-4 bg-white border border-neutral-200/70 rounded-xl space-y-2 relative group hover:border-neutral-350 transition-all shadow-3xs"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-xs font-semibold text-neutral-800 block">
-                              {note.author_email}
-                            </span>
-                            <span className="text-[10px] font-mono text-neutral-400">
-                              {new Date(note.created_at).toLocaleString()}
-                            </span>
-                          </div>
-                          
-                          <button
-                            onClick={() => handleDeleteNote(note.id)}
-                            className="p-1 hover:bg-neutral-100 text-neutral-400 hover:text-red-600 rounded-md transition-colors"
-                            title="Delete Note"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <p className="text-xs text-neutral-600 whitespace-pre-wrap leading-relaxed">
-                          {note.content}
-                        </p>
+                const activityFeed: ActivityItem[] = [
+                  ...notes.map((n): ActivityItem => ({ kind: 'note', id: n.id, created_at: n.created_at, note: n })),
+                  ...statusHistory.map((l): ActivityItem => ({ kind: 'status', id: l.id, created_at: l.created_at, log: l })),
+                ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+                const visibleFeed = activityFilter === 'notes' ? activityFeed.filter(i => i.kind === 'note') : activityFeed;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                        {activityFilter === 'notes' ? `Notes Only (${notes.length})` : `Activity Log (${activityFeed.length})`}
+                      </h4>
+                      <div className="flex gap-1 bg-neutral-100 border border-neutral-200 p-0.5 rounded-lg text-[10px]">
+                        <button
+                          onClick={() => setActivityFilter('all')}
+                          className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                            activityFilter === 'all' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-500 hover:text-neutral-800'
+                          }`}
+                          id="btn-activity-filter-all"
+                        >
+                          All Activity
+                        </button>
+                        <button
+                          onClick={() => setActivityFilter('notes')}
+                          className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                            activityFilter === 'notes' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-500 hover:text-neutral-800'
+                          }`}
+                          id="btn-activity-filter-notes"
+                        >
+                          Notes Only
+                        </button>
                       </div>
-                    ))}
+                    </div>
+
+                    {notesLoading ? (
+                      <div className="text-center py-8 text-neutral-400 text-xs font-mono">
+                        Loading activity...
+                      </div>
+                    ) : visibleFeed.length === 0 ? (
+                      <div className="text-center py-12 border border-dashed border-neutral-200 rounded-xl text-neutral-400 text-xs">
+                        {activityFilter === 'notes'
+                          ? 'No notes written yet. Write the first one above.'
+                          : 'No activity yet. Write the first note above, or change the pipeline status.'}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {visibleFeed.map((item) =>
+                          item.kind === 'note' ? (
+                            <div
+                              key={`note-${item.id}`}
+                              className="p-4 bg-white border border-neutral-200/70 rounded-xl space-y-2 relative group hover:border-neutral-350 transition-all shadow-3xs"
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <span className="text-xs font-semibold text-neutral-800 block">
+                                    {item.note.author_email}
+                                  </span>
+                                  <span className="text-[10px] font-mono text-neutral-400">
+                                    {new Date(item.note.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+
+                                <button
+                                  onClick={() => handleDeleteNote(item.note.id)}
+                                  className="p-1 hover:bg-neutral-100 text-neutral-400 hover:text-red-600 rounded-md transition-colors"
+                                  title="Delete Note"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                              <p className="text-xs text-neutral-600 whitespace-pre-wrap leading-relaxed">
+                                {item.note.content}
+                              </p>
+                            </div>
+                          ) : (
+                            <div
+                              key={`status-${item.id}`}
+                              className="p-4 bg-violet-50/50 border border-violet-100 rounded-xl space-y-1"
+                            >
+                              <div className="flex justify-between items-start">
+                                <span className="text-xs font-semibold text-violet-900">
+                                  {item.log.user_email || 'System'} changed the status
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-400 shrink-0 ml-2">
+                                  {new Date(item.log.created_at).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="text-xs text-violet-700 font-mono">
+                                {(item.log.details?.old_status) || 'Unknown'} → {(item.log.details?.new_status) || 'Unknown'}
+                              </p>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           )}
         </div>

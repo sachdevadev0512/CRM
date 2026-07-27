@@ -56,6 +56,17 @@ export interface Admin {
   updated_at: string;
 }
 
+export interface AdminInvite {
+  id: string;
+  email: string;
+  invited_by: string | null;
+  invited_by_email: string | null;
+  status: 'pending' | 'accepted' | 'revoked';
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+}
+
 export interface AuditLog {
   id: string;
   user_id: string | null;
@@ -84,7 +95,6 @@ export interface ApplicationFormData {
   target_raise: number;
   traction: string;
   demo_video?: string;
-  pitch_deck: File | null;
   currency: string;
   revenue_status: string;
   revenue_generated_fy25?: string | number;

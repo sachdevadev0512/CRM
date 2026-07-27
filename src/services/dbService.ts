@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { ApplicationFormData, Startup, Note, AuditLog, PipelineStatus, Admin } from '../types';
+import { ApplicationFormData, Startup, Note, AuditLog, PipelineStatus, Admin, AdminInvite } from '../types';
 import { cleanUrl } from './securityUtils';
 
 const rawSupabaseUrl = ((import.meta as any).env.VITE_SUPABASE_URL || '').trim();
@@ -69,7 +69,7 @@ export interface DbService {
   signOut(): Promise<void>;
   
   // Startup Operations
-  submitApplication(data: ApplicationFormData): Promise<{ success: boolean; id: string; error?: string }>;
+  submitApplication(data: ApplicationFormData, turnstileToken: string): Promise<{ success: boolean; id: string; error?: string }>;
   getStartups(): Promise<Startup[]>;
   updateStartupStatus(id: string, status: PipelineStatus, user: { id: string; email: string }): Promise<boolean>;
   deleteStartup(id: string, user: { id: string; email: string }): Promise<boolean>;
@@ -84,6 +84,7 @@ export interface DbService {
   
   // Audit Logs Operations
   getAuditLogs(): Promise<AuditLog[]>;
+  getAuditLogsForTarget(targetId: string): Promise<AuditLog[]>;
   
   // CSV Export Operations
   logCSVExport(user: { id: string; email: string }, details: { type: string; count: number }): Promise<void>;
@@ -92,8 +93,12 @@ export interface DbService {
   getAdmins(): Promise<Admin[]>;
   deleteAdmin(id: string, email?: string, user?: { id: string; email: string }): Promise<boolean>;
 
-  // Secure Admin Direct Creation
-  createNewAdmin(email: string, password: string): Promise<boolean>;
+  // Admin Invitation Operations
+  getAdminInvites(): Promise<AdminInvite[]>;
+  inviteAdmin(email: string): Promise<boolean>;
+  cancelAdminInvite(inviteId: string): Promise<boolean>;
+  resendAdminInvite(inviteId: string): Promise<boolean>;
+  acceptAdminInvite(newPassword: string): Promise<boolean>;
 }
 
 /**
@@ -164,35 +169,32 @@ class SupabaseServiceImpl implements DbService {
     }
   }
 
-  async submitApplication(data: ApplicationFormData) {
+  async submitApplication(data: ApplicationFormData, turnstileToken: string) {
     const client: any = getSupabase();
     if (!client) throw new Error('Supabase client is not configured');
 
-    // Ensure the user has an active session to allow storage uploads (authenticated role required by RLS)
-    let activeUserId = '';
-    try {
-      const { data: { session } } = await client.auth.getSession();
-      if (!session) {
-        const { data: anonData, error: anonError } = await client.auth.signInAnonymously();
-        if (anonError) {
-          console.warn('Anonymous auth failed, trying to proceed anyway:', anonError);
-        } else if (anonData?.user) {
-          activeUserId = anonData.user.id;
-        }
-      } else if (session?.user) {
-        activeUserId = session.user.id;
-      }
-    } catch (authErr) {
-      console.warn('Error checking/signing in anonymously:', authErr);
+    // Verify the CAPTCHA token with the server BEFORE touching storage/DB. The Turnstile
+    // widget only proves a token was issued client-side; it must be validated against
+    // Cloudflare's siteverify API to actually block scripted/bot submissions, since the
+    // startups table's INSERT policy otherwise allows anyone with the public anon key in.
+    if (!turnstileToken) {
+      throw new Error('Please complete the security verification (CAPTCHA) before submitting.');
     }
-
-    if (!activeUserId) {
-      try {
-        const { data: { user } } = await client.auth.getUser();
-        if (user) {
-          activeUserId = user.id;
-        }
-      } catch (e) {}
+    try {
+      const verifyRes = await fetch('/api/verify-turnstile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: turnstileToken })
+      });
+      const verifyData = await verifyRes.json().catch(() => ({ success: false }));
+      if (!verifyRes.ok || !verifyData.success) {
+        throw new Error(verifyData.error || 'Security verification failed. Please refresh and try again.');
+      }
+    } catch (err: any) {
+      if (err.message && (err.message.includes('Security verification') || err.message.includes('CAPTCHA'))) {
+        throw err;
+      }
+      throw new Error('Could not complete security verification. Please check your connection and try again.');
     }
 
     // Check for duplicate company name submissions (case-insensitive)
@@ -215,33 +217,22 @@ class SupabaseServiceImpl implements DbService {
       console.warn('Duplicate verification query issue, continuing with insert:', err);
     }
 
-    // 1. Upload the pitch deck first if it exists
-    let pitchDeckPath = '';
-    if (data.pitch_deck) {
-      const fileExt = data.pitch_deck.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2, 11)}_${Date.now()}.${fileExt}`;
-      // Prefix file path inside pitch-decks bucket with auth.uid() to comply with the secure RLS storage policies
-      const filePath = activeUserId ? `${activeUserId}/${fileName}` : `unassigned_${fileName}`;
-
-      const { error: uploadError } = await client.storage
-        .from('pitch-decks')
-        .upload(filePath, data.pitch_deck, {
-          cacheControl: '3650',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        throw new Error(`Pitch deck upload failed: ${uploadError.message}`);
-      }
-      pitchDeckPath = filePath;
-    }
-
-    // 2. Format URLs securely to satisfy DB CHECK constraints and prevent XSS
+    // Format URLs securely to satisfy DB CHECK constraints and prevent XSS
     const websiteClean = cleanUrl(data.website);
     const linkedinClean = cleanUrl(data.founder_linkedin);
     const demoClean = cleanUrl(data.demo_video);
 
+    // Generate the row's id client-side and never ask Postgres to hand the row back
+    // (no `.select()` after `.insert()`). Requesting the inserted row back requires the
+    // SELECT policy to also pass -- and the only SELECT policy on `startups` is
+    // admin-only ("Admin select startups" USING is_admin()) -- so an anonymous founder's
+    // insert previously succeeded but the RETURNING read-back failed, and Postgres reports
+    // the whole statement as an RLS violation. Opening SELECT to the public isn't an
+    // option either, since that would let anyone read every other founder's application.
+    const newId = crypto.randomUUID();
+
     const startupPayload = {
+      id: newId,
       company_name: data.company_name.trim(),
       website: websiteClean,
       one_line_pitch: data.one_line_pitch.trim(),
@@ -257,7 +248,7 @@ class SupabaseServiceImpl implements DbService {
       funding_raised: Number(data.funding_raised || 0),
       target_raise: Number(data.target_raise),
       traction: data.traction.trim(),
-      pitch_deck_path: pitchDeckPath,
+      pitch_deck_path: '',
       demo_video: demoClean || null,
       status: 'New',
       currency: data.currency || 'INR',
@@ -266,37 +257,24 @@ class SupabaseServiceImpl implements DbService {
       current_financial_year_revenue: data.current_financial_year_revenue ? Number(data.current_financial_year_revenue) : null
     };
 
-    const { data: insertedData, error: dbError } = await client
+    const { error: dbError } = await client
       .from('startups')
-      .insert(startupPayload)
-      .select('id')
-      .single();
+      .insert(startupPayload);
 
     if (dbError) {
       console.error('Secure database insert failed:', dbError);
-      // Clean up uploaded pitch deck if the database insert fails (prevents orphaned storage leak)
-      if (pitchDeckPath) {
-        try {
-          await client.storage.from('pitch-decks').remove([pitchDeckPath]);
-          console.log('[Cleanup] Successfully deleted orphaned pitch deck upload:', pitchDeckPath);
-        } catch (cleanupErr) {
-          console.error('[Cleanup] Failed to delete orphaned pitch deck upload:', cleanupErr);
-        }
-      }
       if (dbError.message && (dbError.message.includes('already been submitted') || dbError.message.includes('duplicate'))) {
         throw new Error(dbError.message);
       }
       throw new Error('Your application could not be submitted. Please check the fields and try again.');
     }
 
-    const insertedId = insertedData?.id || '';
-
-    // 3. Write Audit Log
-    // Submissions (both anonymous guest and authenticated admin) are automatically logged securely 
+    // Write Audit Log
+    // Submissions (both anonymous guest and authenticated admin) are automatically logged securely
     // inside the database via the 'tr_log_startup_submission' AFTER INSERT database trigger.
     // This avoids duplicate audit logs when the user is authenticated.
 
-    return { success: true, id: insertedId };
+    return { success: true, id: newId };
   }
 
   async getStartups() {
@@ -524,6 +502,24 @@ class SupabaseServiceImpl implements DbService {
     return (data || []) as AuditLog[];
   }
 
+  async getAuditLogsForTarget(targetId: string) {
+    const client: any = getSupabase();
+    if (!client) return [];
+
+    const { data, error } = await client
+      .from('audit_logs')
+      .select('*')
+      .eq('target_id', targetId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || []) as AuditLog[];
+  }
+
   async logCSVExport(user: { id: string; email: string }, details: { type: string; count: number }) {
     const client: any = getSupabase();
     if (!client) throw new Error('Supabase client is not configured');
@@ -604,7 +600,10 @@ class SupabaseServiceImpl implements DbService {
     return true;
   }
 
-  async createNewAdmin(email: string, password: string) {
+  // Shared helper for the privileged /api/crm-service/* admin-invite routes: attaches the
+  // caller's current session as a Bearer token, POSTs the body, and normalizes error/success
+  // parsing (this logic was previously duplicated per-action; now shared across 4 actions).
+  private async postAdminAction(path: string, body: Record<string, any>): Promise<boolean> {
     const client: any = getSupabase();
     if (!client) throw new Error('Supabase client is not configured');
 
@@ -615,40 +614,71 @@ class SupabaseServiceImpl implements DbService {
       throw new Error('You must be signed in as an administrator to perform this action.');
     }
 
-    const response = await fetch('/api/crm-service/register-administrator', {
+    const response = await fetch(path, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ email: email.trim(), password })
+      body: JSON.stringify(body)
     });
 
+    const text = await response.text();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseErr) {
+      console.warn('[Client DB Service] Failed to parse response as JSON:', parseErr);
+    }
+
     if (!response.ok) {
-      let errMsg = 'Failed to create new administrator.';
-      try {
-        const text = await response.text();
-        try {
-          const errData = JSON.parse(text);
-          errMsg = errData.error || errMsg;
-        } catch (parseErr) {
-          console.warn('[Client DB Service] Failed to parse error response as JSON:', parseErr);
-          errMsg = `Server error (${response.status}): ${text.substring(0, 150)}`;
-        }
-      } catch (e: any) {
-        console.warn('[Client DB Service] Failed to read error response text:', e.message);
-      }
+      const errMsg = parsed?.error || `Server error (${response.status}): ${text.substring(0, 150)}`;
       throw new Error(errMsg);
     }
 
-    const text = await response.text();
-    try {
-      const resData = JSON.parse(text);
-      return !!resData.success;
-    } catch (parseErr) {
-      console.error('[Client DB Service] Failed to parse success response as JSON:', parseErr);
-      return false;
+    return !!parsed?.success;
+  }
+
+  async getAdminInvites() {
+    const client: any = getSupabase();
+    if (!client) return [];
+
+    const { data, error } = await client
+      .from('admin_invites')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
     }
+
+    return (data || []) as AdminInvite[];
+  }
+
+  async inviteAdmin(email: string) {
+    return this.postAdminAction('/api/crm-service/invite-administrator', { email: email.trim() });
+  }
+
+  async cancelAdminInvite(inviteId: string) {
+    return this.postAdminAction('/api/crm-service/cancel-admin-invite', { inviteId });
+  }
+
+  async resendAdminInvite(inviteId: string) {
+    return this.postAdminAction('/api/crm-service/resend-admin-invite', { inviteId });
+  }
+
+  async acceptAdminInvite(newPassword: string) {
+    const client: any = getSupabase();
+    if (!client) throw new Error('Supabase client is not configured');
+
+    // This must be called while the session established by following the invite
+    // email's link is still active (Supabase's client auto-detects it from the URL).
+    const { error: updateError } = await client.auth.updateUser({ password: newPassword });
+    if (updateError) {
+      throw new Error(updateError.message || 'Failed to set your password.');
+    }
+
+    return this.postAdminAction('/api/crm-service/accept-admin-invite', {});
   }
 }
 

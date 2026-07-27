@@ -28,16 +28,19 @@ import {
   Users,
   Download,
   Calendar,
-  X
+  X,
+  Send,
+  Ban
 } from 'lucide-react';
-import { Startup, AuditLog, PipelineStatus, Admin } from '../types';
+import { Startup, AuditLog, PipelineStatus, Admin, AdminInvite } from '../types';
 import { dbService } from '../services/dbService';
 import StartupDetail from './StartupDetail';
+import AcceptAdminInvite from './AcceptAdminInvite';
 
 interface BusinessAuditEntry {
   id: string;
   created_at: string;
-  eventType: 'Application Submitted' | 'Status Changed' | 'Note Added' | 'Startup Updated' | 'Startup Deleted' | 'Administrator Created' | 'Administrator Revoked' | 'CSV Export Generated';
+  eventType: 'Application Submitted' | 'Status Changed' | 'Note Added' | 'Startup Updated' | 'Startup Deleted' | 'Administrator Created' | 'Administrator Revoked' | 'Administrator Invited' | 'Administrator Invite Cancelled' | 'Administrator Invite Resent' | 'CSV Export Generated';
   category: 'public' | 'crm';
   target: string;
   targetDetails?: string;
@@ -149,7 +152,44 @@ const normalizeAuditLogs = (logs: AuditLog[]): BusinessAuditEntry[] => {
       });
       continue;
     }
-    
+
+    // 7a. Administrator Invited / Cancelled / Resent
+    if (act.includes('administrator invite cancelled') || act.includes('admin invite cancelled')) {
+      result.push({
+        id: log.id,
+        created_at: log.created_at,
+        eventType: 'Administrator Invite Cancelled',
+        category: 'crm',
+        target: log.target_name || details.email || 'Invited Administrator',
+        performedBy: log.user_email || 'System'
+      });
+      continue;
+    }
+
+    if (act.includes('administrator invite resent') || act.includes('admin invite resent')) {
+      result.push({
+        id: log.id,
+        created_at: log.created_at,
+        eventType: 'Administrator Invite Resent',
+        category: 'crm',
+        target: log.target_name || details.email || 'Invited Administrator',
+        performedBy: log.user_email || 'System'
+      });
+      continue;
+    }
+
+    if (act.includes('administrator invited') || act.includes('admin invited')) {
+      result.push({
+        id: log.id,
+        created_at: log.created_at,
+        eventType: 'Administrator Invited',
+        category: 'crm',
+        target: log.target_name || details.email || 'Invited Administrator',
+        performedBy: log.user_email || 'System'
+      });
+      continue;
+    }
+
     // 8. CSV Export Generated
     if (act.includes('csv export') || act.includes('export')) {
       const count = details.record_count || details.count || 0;
@@ -184,15 +224,26 @@ export default function AdminCRM() {
   const [startups, setStartups] = useState<Startup[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [adminsList, setAdminsList] = useState<Admin[]>([]);
+  const [adminInvites, setAdminInvites] = useState<AdminInvite[]>([]);
   const [loadingCRMData, setLoadingCRMData] = useState(false);
   const [crmError, setCrmError] = useState('');
 
   // Admin Management form states
   const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [newAdminPassword, setNewAdminPassword] = useState('');
   const [adminActionError, setAdminActionError] = useState('');
   const [adminActionSuccess, setAdminActionSuccess] = useState('');
   const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [inviteRowActionId, setInviteRowActionId] = useState<string | null>(null);
+
+  // Optional "add a note about this status change" popup, shown after any status
+  // change (Pipeline Board quick-move dropdown or the applicant drawer's selector).
+  const [statusNotePrompt, setStatusNotePrompt] = useState<{ startupId: string; companyName: string; oldStatus: PipelineStatus; newStatus: PipelineStatus } | null>(null);
+  const [statusNoteText, setStatusNoteText] = useState('');
+  const [isSavingStatusNote, setIsSavingStatusNote] = useState(false);
+  // Bumped whenever a note is saved from outside the currently-open StartupDetail
+  // drawer (i.e. via this status-note popup), so that drawer knows to refetch --
+  // it has no other way of learning about a mutation made outside its own tree.
+  const [activityRefreshTick, setActivityRefreshTick] = useState(0);
 
   // UI Navigation states
   const [activeTab, setActiveTab] = useState<'pipeline' | 'table' | 'logs' | 'admins'>('pipeline');
@@ -315,6 +366,21 @@ export default function AdminCRM() {
         return {
           icon: <Lock className="h-3 w-3 text-rose-600" />,
           bgColor: 'bg-rose-50 border-rose-100 text-rose-800'
+        };
+      case 'Administrator Invited':
+        return {
+          icon: <Send className="h-3 w-3 text-sky-600" />,
+          bgColor: 'bg-sky-50 border-sky-100 text-sky-800'
+        };
+      case 'Administrator Invite Resent':
+        return {
+          icon: <RefreshCw className="h-3 w-3 text-sky-600" />,
+          bgColor: 'bg-sky-50 border-sky-100 text-sky-800'
+        };
+      case 'Administrator Invite Cancelled':
+        return {
+          icon: <Ban className="h-3 w-3 text-neutral-500" />,
+          bgColor: 'bg-neutral-50 border-neutral-200 text-neutral-700'
         };
       case 'CSV Export Generated':
         return {
@@ -474,9 +540,10 @@ export default function AdminCRM() {
   useEffect(() => {
     if (!isInitializingAuth) {
       const isLoginPath = location.pathname === '/admin/login';
+      const isAcceptInvitePath = location.pathname === '/admin/accept-invite';
       const isAuthAdmin = currentUser && currentUser.isAdmin;
 
-      if (!isAuthAdmin && !isLoginPath) {
+      if (!isAuthAdmin && !isLoginPath && !isAcceptInvitePath) {
         navigate('/admin/login', { replace: true });
       } else if (isAuthAdmin && isLoginPath) {
         navigate('/admin', { replace: true });
@@ -509,14 +576,16 @@ export default function AdminCRM() {
     setLoadingCRMData(true);
     setCrmError('');
     try {
-      const [startupsList, logs, admins] = await Promise.all([
+      const [startupsList, logs, admins, invites] = await Promise.all([
         dbService.getStartups(),
         dbService.getAuditLogs(),
-        dbService.getAdmins()
+        dbService.getAdmins(),
+        dbService.getAdminInvites()
       ]);
       setStartups(startupsList);
       setAuditLogs(logs);
       setAdminsList(admins);
+      setAdminInvites(invites);
     } catch (err: any) {
       console.error(err);
       setCrmError(err.message || 'Failed to load database. Verify Supabase tables and RLS.');
@@ -557,7 +626,20 @@ export default function AdminCRM() {
     setStartups([]);
     setAuditLogs([]);
     setAdminsList([]);
+    setAdminInvites([]);
     setSelectedStartup(null);
+  };
+
+  // Entry point for BOTH the Pipeline Board's quick-move dropdown and the applicant
+  // drawer's status selector: neither applies the change directly anymore. Selecting a
+  // new status only opens the confirmation modal below -- nothing is written until the
+  // admin explicitly confirms. Because the <select>s stay bound to the unchanged
+  // startup/`s.status` value, cancelling snaps them right back with no extra code.
+  const handleStatusChangeRequest = (id: string, newStatus: PipelineStatus) => {
+    const targetStartup = startups.find(s => s.id === id);
+    if (!targetStartup || targetStartup.status === newStatus) return;
+    setStatusNoteText('');
+    setStatusNotePrompt({ startupId: id, companyName: targetStartup.company_name, oldStatus: targetStartup.status, newStatus });
   };
 
   const handleUpdateStatus = async (id: string, status: PipelineStatus) => {
@@ -577,11 +659,7 @@ export default function AdminCRM() {
 
     try {
       const success = await dbService.updateStartupStatus(id, status, currentUser);
-      if (success) {
-        // Refresh audit logs upon confirmed success
-        const logs = await dbService.getAuditLogs();
-        setAuditLogs(logs);
-      } else {
+      if (!success) {
         // Rollback if service fails to update
         setStartups(previousStartups);
         setSelectedStartup(previousSelectedStartup);
@@ -596,33 +674,99 @@ export default function AdminCRM() {
     }
   };
 
+  // Modal confirm: actually applies the pending status change (and the optional note,
+  // if one was written) together. Nothing was written to the database before this point.
+  const handleConfirmStatusChange = async () => {
+    if (!statusNotePrompt || !currentUser) return;
+    const { startupId, newStatus } = statusNotePrompt;
+    const noteToSave = statusNoteText.trim();
+
+    setIsSavingStatusNote(true);
+    try {
+      await handleUpdateStatus(startupId, newStatus);
+      if (noteToSave) {
+        await dbService.addNote(startupId, noteToSave, currentUser);
+      }
+      const logs = await dbService.getAuditLogs();
+      setAuditLogs(logs);
+      setActivityRefreshTick(t => t + 1);
+      setStatusNotePrompt(null);
+      setStatusNoteText('');
+    } catch (err: any) {
+      console.error('Failed to confirm status change:', err);
+      alert('Failed to update status: ' + (err.message || err));
+    } finally {
+      setIsSavingStatusNote(false);
+    }
+  };
+
+  // Cancel: the status was never written, so there's nothing to roll back -- the
+  // <select> reverts on its own since it's still bound to the unchanged value.
+  const handleCancelStatusChange = () => {
+    setStatusNotePrompt(null);
+    setStatusNoteText('');
+  };
+
   // Admin Management actions
-  const handleCreateNewAdmin = async (e: React.FormEvent) => {
+  const handleInviteAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminActionError('');
     setAdminActionSuccess('');
-    if (!newAdminEmail.trim() || !newAdminPassword.trim()) return;
-
-    if (newAdminPassword.trim().length < 6) {
-      setAdminActionError('Password must be at least 6 characters long.');
-      return;
-    }
+    if (!newAdminEmail.trim()) return;
 
     setAdminActionLoading(true);
     try {
-      const success = await dbService.createNewAdmin(newAdminEmail.trim(), newAdminPassword.trim());
+      const success = await dbService.inviteAdmin(newAdminEmail.trim());
       if (success) {
-        setAdminActionSuccess(`Successfully created and authorized ${newAdminEmail} as an administrator.`);
+        setAdminActionSuccess(`Invitation sent to ${newAdminEmail}. They'll gain admin access once they set their password.`);
         setNewAdminEmail('');
-        setNewAdminPassword('');
-        // Refresh crm data (which loads admins and logs)
+        // Refresh crm data (which loads admins, invites and logs)
         await fetchCRMData();
       }
     } catch (err: any) {
       console.error(err);
-      setAdminActionError(err.message || 'Failed to create new administrator.');
+      setAdminActionError(err.message || 'Failed to send administrator invitation.');
     } finally {
       setAdminActionLoading(false);
+    }
+  };
+
+  const handleCancelInvite = async (inviteId: string, email: string) => {
+    if (!confirm(`Cancel the pending invitation for ${email}? They will no longer be able to activate this account.`)) {
+      return;
+    }
+    setAdminActionError('');
+    setAdminActionSuccess('');
+    setInviteRowActionId(inviteId);
+    try {
+      const success = await dbService.cancelAdminInvite(inviteId);
+      if (success) {
+        setAdminActionSuccess(`Cancelled the pending invitation for ${email}.`);
+        await fetchCRMData();
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAdminActionError(err.message || 'Failed to cancel invitation.');
+    } finally {
+      setInviteRowActionId(null);
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string, email: string) => {
+    setAdminActionError('');
+    setAdminActionSuccess('');
+    setInviteRowActionId(inviteId);
+    try {
+      const success = await dbService.resendAdminInvite(inviteId);
+      if (success) {
+        setAdminActionSuccess(`Resent the invitation to ${email}.`);
+        await fetchCRMData();
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAdminActionError(err.message || 'Failed to resend invitation.');
+    } finally {
+      setInviteRowActionId(null);
     }
   };
 
@@ -727,6 +871,9 @@ export default function AdminCRM() {
         'Startup Deleted',
         'Administrator Created',
         'Administrator Revoked',
+        'Administrator Invited',
+        'Administrator Invite Resent',
+        'Administrator Invite Cancelled',
         'CSV Export Generated'
       ];
     }
@@ -804,6 +951,13 @@ export default function AdminCRM() {
         <span className="text-xs text-neutral-400 font-mono">Verifying administrative session...</span>
       </div>
     );
+  }
+
+  // Accept-invite is reachable regardless of admin status: the invitee has a valid
+  // Supabase Auth session (from following the invite email's link) but isn't in
+  // public.admins yet — that's exactly what this screen finalizes.
+  if (location.pathname === '/admin/accept-invite') {
+    return <AcceptAdminInvite />;
   }
 
   const isLoginPath = location.pathname === '/admin/login';
@@ -1182,7 +1336,7 @@ export default function AdminCRM() {
                             >
                               <select
                                 value={s.status}
-                                onChange={e => handleUpdateStatus(s.id, e.target.value as PipelineStatus)}
+                                onChange={e => handleStatusChangeRequest(s.id, e.target.value as PipelineStatus)}
                                 className="px-1 py-0.5 bg-neutral-50 border border-neutral-200 text-[9px] font-semibold text-neutral-600 rounded outline-none cursor-pointer"
                                 title="Move Status"
                               >
@@ -1645,19 +1799,111 @@ export default function AdminCRM() {
                   </div>
                 </div>
 
+                {/* Pending Invitations Card */}
+                <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-3xs flex flex-col">
+                  <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/20 text-left">
+                    <h3 className="font-semibold text-sm text-neutral-900">Pending Invitations</h3>
+                    <p className="text-neutral-500 text-[11px] mt-0.5">
+                      Invitations sent by email. An invitee only gains CRM access once they click the link and set their own password.
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto flex-1 font-sans">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-500 font-semibold uppercase tracking-wider font-mono">
+                          <th className="px-6 py-3 font-semibold text-neutral-500">Email</th>
+                          <th className="px-6 py-3 font-semibold text-neutral-500">Invited By</th>
+                          <th className="px-6 py-3 font-semibold text-neutral-500">Status</th>
+                          <th className="px-6 py-3 font-semibold text-neutral-500">Expires On</th>
+                          <th className="px-6 py-3 font-semibold text-neutral-500 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-150">
+                        {adminInvites.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="text-center py-10 text-neutral-400 font-mono">
+                              No invitations sent yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          adminInvites.map(invite => {
+                            const isPending = invite.status === 'pending';
+                            const isExpired = isPending && new Date(invite.expires_at).getTime() < Date.now();
+                            const rowBusy = inviteRowActionId === invite.id;
+                            return (
+                              <tr key={invite.id} className="hover:bg-neutral-50/30 text-left">
+                                <td className="px-6 py-3.5 font-semibold text-neutral-900">
+                                  {invite.email}
+                                </td>
+                                <td className="px-6 py-3.5 text-neutral-500">
+                                  {invite.invited_by_email || 'System'}
+                                </td>
+                                <td className="px-6 py-3.5">
+                                  <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded uppercase ${
+                                    invite.status === 'accepted'
+                                      ? 'bg-green-50 text-green-700 border border-green-150'
+                                      : invite.status === 'revoked'
+                                      ? 'bg-neutral-100 text-neutral-400 border border-neutral-200'
+                                      : isExpired
+                                      ? 'bg-amber-50 text-amber-700 border border-amber-150'
+                                      : 'bg-sky-50 text-sky-700 border border-sky-150'
+                                  }`}>
+                                    {invite.status === 'accepted' ? 'Accepted' : invite.status === 'revoked' ? 'Cancelled' : isExpired ? 'Expired' : 'Pending'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-3.5 text-neutral-500 font-mono">
+                                  {new Date(invite.expires_at).toLocaleDateString()}
+                                </td>
+                                <td className="px-6 py-3.5 text-right">
+                                  {isPending ? (
+                                    <div className="inline-flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleResendInvite(invite.id, invite.email)}
+                                        disabled={rowBusy}
+                                        className="p-1.5 rounded-lg border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50 text-neutral-500 hover:text-neutral-900 transition-colors inline-flex items-center gap-1 font-semibold disabled:opacity-40"
+                                        title="Resend invitation"
+                                      >
+                                        {rowBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                        Resend
+                                      </button>
+                                      <button
+                                        onClick={() => handleCancelInvite(invite.id, invite.email)}
+                                        disabled={rowBusy}
+                                        className="p-1.5 rounded-lg border border-neutral-200 hover:border-red-200 hover:bg-red-50 text-neutral-500 hover:text-red-600 transition-colors inline-flex items-center gap-1 font-semibold disabled:opacity-40"
+                                        title="Cancel invitation"
+                                      >
+                                        <Ban className="h-3.5 w-3.5" />
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-neutral-300 text-[10px] font-mono">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
               </div>
 
-              {/* Right Column: Direct Admin Creation Form */}
+              {/* Right Column: Email Invitation Form */}
               <div className="space-y-6">
-                {/* Create New Administrator Card */}
+                {/* Invite New Administrator Card */}
                 <div className="bg-white border border-neutral-200 rounded-xl p-6 shadow-3xs space-y-4 text-left font-sans">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-neutral-900 font-semibold text-sm">
                       <UserPlus className="h-4.5 w-4.5 text-neutral-650" />
-                      <span>Create New Administrator</span>
+                      <span>Invite New Administrator</span>
                     </div>
                     <p className="text-neutral-500 text-[11px] leading-relaxed">
-                      Securely register a new administrator account. This will create their credentials and grant full CRM access rights atomically.
+                      Send an email invitation. The invitee clicks the link, sets their own password, and is only
+                      granted CRM access once they've completed that step.
                     </p>
                   </div>
 
@@ -1675,7 +1921,7 @@ export default function AdminCRM() {
                     </div>
                   )}
 
-                  <form onSubmit={handleCreateNewAdmin} className="space-y-3">
+                  <form onSubmit={handleInviteAdmin} className="space-y-3">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500" htmlFor="new-admin-email">
                         Business Email Address
@@ -1691,29 +1937,13 @@ export default function AdminCRM() {
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500" htmlFor="new-admin-password">
-                        Temporary Password
-                      </label>
-                      <input
-                        type="password"
-                        id="new-admin-password"
-                        placeholder="At least 6 characters"
-                        value={newAdminPassword}
-                        onChange={e => setNewAdminPassword(e.target.value)}
-                        required
-                        minLength={6}
-                        className="w-full px-3 py-1.5 text-xs bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none font-sans"
-                      />
-                    </div>
-
                     <button
                       type="submit"
                       disabled={adminActionLoading}
                       className="w-full py-2 bg-neutral-900 hover:bg-neutral-850 disabled:bg-neutral-400 text-white font-semibold text-xs rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
-                      {adminActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-                      Create Admin Account
+                      {adminActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      Send Invitation
                     </button>
                   </form>
 
@@ -1722,7 +1952,7 @@ export default function AdminCRM() {
                       <ShieldCheck className="h-3.5 w-3.5 text-neutral-400" />
                       <span>Security & Auditing Gated Action</span>
                     </div>
-                    <span>Creating an administrator runs an atomic backend transaction that registers the user in Supabase Auth, updates <b>public.admins</b>, and logs a permanent record in the audit trail.</span>
+                    <span>Sending an invitation runs an atomic backend transaction that registers an unconfirmed Supabase Auth user, emails them an activation link, and logs a permanent record in the audit trail. They only appear in <b>Active CRM Administrators</b> after they accept.</span>
                   </div>
                 </div>
               </div>
@@ -1737,8 +1967,9 @@ export default function AdminCRM() {
           <StartupDetail
             startup={selectedStartup}
             currentUser={currentUser}
+            activityRefreshKey={activityRefreshTick}
             onClose={() => setSelectedStartup(null)}
-            onUpdateStatus={status => handleUpdateStatus(selectedStartup.id, status)}
+            onUpdateStatus={status => handleStatusChangeRequest(selectedStartup.id, status)}
             onDelete={() => {
               setSelectedStartup(null);
               fetchCRMData();
@@ -1853,6 +2084,60 @@ export default function AdminCRM() {
                   className="px-3.5 py-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-100 text-neutral-600 font-semibold text-xs cursor-pointer transition-colors"
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {statusNotePrompt && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
+            onClick={handleCancelStatusChange}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="w-full max-w-md bg-white border border-neutral-200 rounded-xl shadow-xl p-6 space-y-4"
+              id="status-note-prompt"
+              onClick={e => e.stopPropagation()}
+            >
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900">Confirm Status Change</h3>
+                <p className="text-xs text-neutral-500 mt-1.5 leading-relaxed">
+                  Move <span className="font-semibold text-neutral-800">{statusNotePrompt.companyName}</span> from{' '}
+                  <span className="font-mono font-medium text-neutral-700">{statusNotePrompt.oldStatus}</span> to{' '}
+                  <span className="font-mono font-semibold text-neutral-900">{statusNotePrompt.newStatus}</span>?
+                  Cancelling leaves the status unchanged.
+                </p>
+              </div>
+              <textarea
+                rows={3}
+                placeholder="Add a note about why (optional)..."
+                value={statusNoteText}
+                onChange={e => setStatusNoteText(e.target.value)}
+                className="w-full text-xs p-2.5 bg-neutral-50 border border-neutral-200 focus:border-neutral-900 rounded-lg outline-none resize-none"
+                id="status-note-textarea"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={handleCancelStatusChange}
+                  disabled={isSavingStatusNote}
+                  className="px-3.5 py-1.5 border border-neutral-200 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
+                  id="btn-cancel-status-change"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmStatusChange}
+                  disabled={isSavingStatusNote}
+                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-850 disabled:bg-neutral-400 text-white font-semibold text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  id="btn-confirm-status-change"
+                >
+                  {isSavingStatusNote ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                  Confirm Change
                 </button>
               </div>
             </motion.div>

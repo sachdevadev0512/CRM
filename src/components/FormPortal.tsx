@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Upload, FileCode, CheckCircle2, AlertCircle, Building2, Globe, Mail, User, Shield, Video, ArrowRight, RefreshCw } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Building2, Globe, Mail, User, Shield, Video, ArrowRight, RefreshCw } from 'lucide-react';
 import { dbService } from '../services/dbService';
 import { isValidHttpUrl, validateLinkedInUrl } from '../services/securityUtils';
 
@@ -25,9 +25,8 @@ export default function FormPortal() {
     funding_raised: '', // 18. How much funding have you raised so far, if any?
     target_raise: '', // 19. How much funding are you looking to raise?
     anything_else: '', // 20. Is there anything else you'd like us to know about your startup?
-    pitch_deck: null as File | null, // 21. Upload Pitch Deck
-    pitch_deck_link: '', // 22. Pitch Deck Link
-    declaration: false, // 23. Declaration
+    pitch_deck_link: '', // 21. Pitch Deck Link
+    declaration: false, // 22. Declaration
     currency: 'INR',
     revenue_status: 'Pre-Revenue',
     revenue_generated_fy25: '',
@@ -56,9 +55,6 @@ export default function FormPortal() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submittedId, setSubmittedId] = useState('');
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [turnstileToken, setTurnstileToken] = useState<string>('');
   const turnstileContainerRef = useRef<HTMLDivElement>(null);
@@ -249,72 +245,7 @@ export default function FormPortal() {
     }
   };
 
-  const handleFileChange = (file: File | null) => {
-    if (!file) return;
-
-    // Check file extension
-    const extension = file.name.split('.').pop()?.toLowerCase();
-    if (extension !== 'pdf' && extension !== 'ppt' && extension !== 'pptx') {
-      setErrors((prev) => ({
-        ...prev,
-        pitch_deck: 'Pitch deck must be a PDF, PPT, or PPTX presentation file.',
-      }));
-      return;
-    }
-
-    const allowedMimeTypes = [
-      'application/pdf',
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    ];
-    if (file.type && !allowedMimeTypes.includes(file.type)) {
-      setErrors((prev) => ({
-        ...prev,
-        pitch_deck: 'File content does not match a valid PDF/PPT/PPTX file.',
-      }));
-      return;
-    }
-
-    // Limit file size to 50MB
-    if (file.size > 50 * 1024 * 1024) {
-      setErrors((prev) => ({
-        ...prev,
-        pitch_deck: 'Pitch deck file must be smaller than 50MB.',
-      }));
-      return;
-    }
-
-    setFormFields((prev) => ({ ...prev, pitch_deck: file }));
-    setErrors((prev) => {
-      const newErrs = { ...prev };
-      delete newErrs['pitch_deck'];
-      return newErrs;
-    });
-  };
-
-  // Drag and Drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileChange(e.dataTransfer.files[0]);
-    }
-  };
-
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
-
-  const validateForm = (): boolean => {
+  const validateForm = (): Record<string, string> => {
     const newErrors: Record<string, string> = {};
 
     if (!formFields.referral) {
@@ -417,10 +348,9 @@ export default function FormPortal() {
     }
 
     // Pitch deck file or link is mandatory
-    if (!formFields.pitch_deck && !formFields.pitch_deck_link.trim()) {
-      newErrors.pitch_deck = 'Please upload a pitch deck file or provide a pitch deck link.';
-      newErrors.pitch_deck_link = 'Pitch deck link is required if no file is uploaded.';
-    } else if (formFields.pitch_deck_link.trim() && !isValidHttpUrl(formFields.pitch_deck_link)) {
+    if (!formFields.pitch_deck_link.trim()) {
+      newErrors.pitch_deck_link = 'Pitch deck link is required.';
+    } else if (!isValidHttpUrl(formFields.pitch_deck_link)) {
       newErrors.pitch_deck_link = 'Enter a valid Pitch Deck Link (e.g. https://drive.google.com/...).';
     }
 
@@ -433,7 +363,7 @@ export default function FormPortal() {
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -451,9 +381,13 @@ export default function FormPortal() {
       }
     }
 
-    if (!validateForm()) {
-      // Scroll to first error
-      const firstErrorKey = Object.keys(errors)[0];
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      console.warn('[FormPortal] Submission blocked by validation:', validationErrors);
+      // Scroll to the first field that actually failed in THIS validation pass
+      // (previously read from stale `errors` state, which was empty on a first
+      // attempt, so the page silently failed to scroll to the real error).
+      const firstErrorKey = Object.keys(validationErrors)[0];
       if (firstErrorKey) {
         const element = document.getElementById(firstErrorKey);
         element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -502,14 +436,13 @@ ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} $
 [Revenue Generated During Current Financial Year]
 ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} ${formFields.current_financial_year_revenue || '0'}` : 'N/A'}`,
         demo_video: formFields.pitch_deck_link.trim() || undefined,
-        pitch_deck: formFields.pitch_deck,
         currency: formFields.currency,
         revenue_status: formFields.revenue_status,
         revenue_generated_fy25: formFields.revenue_status === 'Revenue Generating' ? formFields.revenue_generated_fy25 : '',
         current_financial_year_revenue: formFields.revenue_status === 'Revenue Generating' ? formFields.current_financial_year_revenue : '',
       };
 
-      const response = await dbService.submitApplication(payload);
+      const response = await dbService.submitApplication(payload, turnstileToken);
       if (response.success && response.id) {
         localStorage.setItem('last_submission_time', String(Date.now()));
         setSubmittedId(response.id);
@@ -546,7 +479,6 @@ ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} $
       funding_raised: '',
       target_raise: '',
       anything_else: '',
-      pitch_deck: null,
       pitch_deck_link: '',
       declaration: false,
       currency: 'INR',
@@ -1214,90 +1146,10 @@ ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} $
           </div>
 
           <div className="space-y-6">
-            {/* 21. Upload Pitch Deck */}
-            <div className="space-y-3">
-              <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                21. Upload Pitch Deck <span className="text-red-500">*</span> <span className="text-neutral-400">(Mandatory unless Pitch Deck Link is provided)</span>
-              </label>
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={triggerFileInput}
-                className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                  isDragOver
-                    ? 'border-neutral-900 bg-neutral-50'
-                    : formFields.pitch_deck
-                    ? 'border-neutral-300 bg-neutral-50/50 hover:bg-neutral-50'
-                    : 'border-neutral-200 hover:border-neutral-400 bg-transparent'
-                }`}
-                id="pitch_deck_zone"
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  id="pitch_deck"
-                  accept=".pdf,.ppt,.pptx"
-                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-                  className="hidden"
-                />
-
-                {formFields.pitch_deck ? (
-                  <div className="space-y-3">
-                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-900 text-white">
-                      <FileCode className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-neutral-900">
-                        {formFields.pitch_deck.name}
-                      </p>
-                      <p className="text-xs text-neutral-500">
-                        {(formFields.pitch_deck.size / (1024 * 1024)).toFixed(2)} MB • Ready to Upload
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFormFields((prev) => ({ ...prev, pitch_deck: null }));
-                      }}
-                      className="text-xs text-neutral-500 hover:text-neutral-900 font-medium underline"
-                    >
-                      Remove and choose another
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600 border border-neutral-200/55">
-                      <Upload className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-neutral-900">
-                        Drag & Drop Pitch Deck File
-                      </p>
-                      <p className="text-xs text-neutral-400 mt-1">
-                        Support PDF, PPT, PPTX formats. Max 50MB.
-                      </p>
-                    </div>
-                    <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-neutral-100 border border-neutral-200 rounded-md font-medium text-neutral-700 hover:bg-neutral-200 transition-colors">
-                      Browse Files
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {errors.pitch_deck && (
-                <p className="text-xs text-red-500 flex items-center gap-1 mt-1">
-                  <AlertCircle className="h-3 w-3" />
-                  {errors.pitch_deck}
-                </p>
-              )}
-            </div>
-
-            {/* 22. Pitch Deck Link */}
+            {/* 21. Pitch Deck Link */}
             <div className="space-y-1.5" id="pitch_deck_link_field">
               <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="pitch_deck_link">
-                22. Pitch Deck Link <span className="text-red-500">*</span> <span className="text-neutral-400">(Mandatory if no file is uploaded)</span>
+                21. Pitch Deck Link <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -1308,13 +1160,14 @@ ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} $
                 onChange={handleInputChange}
                 className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.pitch_deck_link ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
               />
+              <p className="text-[10px] text-neutral-400">Share a link to your pitch deck (Google Drive, Dropbox, Notion, etc. — make sure it's viewable by anyone with the link).</p>
               {errors.pitch_deck_link && <span className="text-xs text-red-500">{errors.pitch_deck_link}</span>}
             </div>
 
-            {/* 23. Declaration Checkbox */}
+            {/* 22. Declaration Checkbox */}
             <div className="space-y-3 pt-4 border-t border-neutral-100">
               <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                23. Declaration <span className="text-red-500">*</span>
+                22. Declaration <span className="text-red-500">*</span>
               </label>
               <div className="flex items-start gap-3" id="declaration_field">
                 <input
