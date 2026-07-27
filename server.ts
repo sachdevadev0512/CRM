@@ -496,58 +496,43 @@ async function startServer() {
         .eq('id', inviteId)
         .maybeSingle();
 
-      if (fetchError || !invite || invite.status !== 'pending') {
+      if (fetchError || !invite || invite.status !== 'pending' || !invite.invited_user_id) {
         return res.status(400).json({ error: 'No pending invitation was found for that record.' });
       }
 
-      // Issue the replacement invite (and send its email) BEFORE tearing down the old
-      // one, so a failure at any point here (rate limit, transient network error, SMTP
-      // failure) leaves the original invite intact and resendable, instead of destroying
-      // it with nothing to replace it.
+      // The invited user's auth account already exists at this point (unconfirmed,
+      // no password set) -- generateLink({type: 'invite'}) specifically CREATES a new
+      // user and fails with "already been registered" for an email that already has
+      // one, which is exactly what happened here. A resend doesn't need a new account
+      // at all: generate a fresh 'recovery' link for the SAME existing user (it
+      // establishes a session identically to an invite link) and just extend this
+      // same invite row's expiry, instead of destroying and recreating the account.
       const redirectTo = `${getAppOrigin(req)}/admin/accept-invite`;
-      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
-        type: 'invite',
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: 'recovery',
         email: invite.email,
         options: { redirectTo }
       });
-      if (inviteError || !inviteData || !inviteData.user || !inviteData.properties?.action_link) {
-        console.error('[Server API] generateLink (resend) failed:', inviteError?.message);
-        return res.status(400).json({ error: inviteError?.message || 'Failed to resend administrator invitation. The original invitation is still active.' });
+      if (linkError || !linkData || !linkData.properties?.action_link) {
+        console.error('[Server API] generateLink (resend) failed:', linkError?.message);
+        return res.status(400).json({ error: linkError?.message || 'Failed to resend administrator invitation.' });
       }
 
       try {
-        await sendInviteEmail(invite.email, inviteData.properties.action_link);
+        await sendInviteEmail(invite.email, linkData.properties.action_link);
       } catch (mailError: any) {
         console.error('[Server API] Failed to send resend invite email:', mailError.message);
-        await adminClient.auth.admin.deleteUser(inviteData.user.id);
-        return res.status(500).json({ error: `Failed to send invitation email: ${mailError.message}. The original invitation is still active.` });
+        return res.status(500).json({ error: `Failed to send invitation email: ${mailError.message}` });
       }
-
-      if (invite.invited_user_id) {
-        await adminClient.auth.admin.deleteUser(invite.invited_user_id);
-      }
-      await adminClient.from('admin_invites').update({ status: 'revoked' }).eq('id', inviteId);
 
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { error: insertError } = await adminClient.from('admin_invites').insert({
-        email: invite.email,
-        invited_user_id: inviteData.user.id,
-        invited_by: user.id,
-        invited_by_email: user.email,
-        status: 'pending',
-        expires_at: expiresAt
-      });
-      if (insertError) {
-        console.error('[Server API] Failed to record resent admin_invites row:', insertError.message);
-        await adminClient.auth.admin.deleteUser(inviteData.user.id);
-        return res.status(500).json({ error: `Failed to record invitation: ${insertError.message}` });
-      }
+      await adminClient.from('admin_invites').update({ expires_at: expiresAt }).eq('id', inviteId);
 
       await adminClient.from('audit_logs').insert({
         user_id: user.id,
         user_email: user.email,
         action: 'Administrator invite resent',
-        target_id: inviteData.user.id,
+        target_id: invite.invited_user_id,
         target_name: invite.email,
         details: { resent_by: user.id, email: invite.email }
       });
