@@ -275,7 +275,7 @@ async function startServer() {
   app.post('/api/crm-service/invite-administrator', async (req, res) => {
     try {
       const ip = getClientIp(req);
-      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 50, 15 * 60 * 1000);
       if (!limitCheck.allowed) {
         const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
         return res.status(429).json({ error: `Too many administrator invitation attempts from this IP. Please try again in ${minutesLeft} minutes.` });
@@ -400,7 +400,7 @@ async function startServer() {
   app.post('/api/crm-service/resend-admin-invite', async (req, res) => {
     try {
       const ip = getClientIp(req);
-      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 50, 15 * 60 * 1000);
       if (!limitCheck.allowed) {
         const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
         return res.status(429).json({ error: `Too many administrator invitation attempts from this IP. Please try again in ${minutesLeft} minutes.` });
@@ -475,7 +475,7 @@ async function startServer() {
   app.post('/api/crm-service/accept-admin-invite', async (req, res) => {
     try {
       const ip = getClientIp(req);
-      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 10, 15 * 60 * 1000);
+      const limitCheck = checkRateLimit(adminInviteLimiter, ip, 50, 15 * 60 * 1000);
       if (!limitCheck.allowed) {
         const minutesLeft = Math.ceil(((limitCheck.resetAt || 0) - Date.now()) / 1000 / 60);
         return res.status(429).json({ error: `Too many attempts. Please try again in ${minutesLeft} minutes.` });
