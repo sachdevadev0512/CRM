@@ -585,16 +585,25 @@ class SupabaseServiceImpl implements DbService {
       );
     }
 
-    // Insert Audit Log for revocation if user details are provided
+    // Insert Audit Log for revocation if user details are provided. The admin row is
+    // already gone at this point (delete above succeeded), so a failure here must not
+    // throw out of this function -- that would surface as "revoke failed" in the UI
+    // even though the revoke actually succeeded. Wrapped in try/catch rather than
+    // chaining .catch() directly on the query builder, which isn't a real Promise
+    // until awaited/then()'d and doesn't implement .catch() as a standalone method.
     if (user && email) {
-      await client.from('audit_logs').insert({
-        user_id: user.id,
-        user_email: user.email,
-        action: 'Administrator Revoked',
-        target_id: id,
-        target_name: email,
-        details: { message: `Administrator privilege revoked for ${email}.`, email }
-      }).catch((e: any) => console.warn('Failed to log admin revocation:', e));
+      try {
+        await client.from('audit_logs').insert({
+          user_id: user.id,
+          user_email: user.email,
+          action: 'Administrator Revoked',
+          target_id: id,
+          target_name: email,
+          details: { message: `Administrator privilege revoked for ${email}.`, email }
+        });
+      } catch (e: any) {
+        console.warn('Failed to log admin revocation:', e);
+      }
     }
 
     return true;
