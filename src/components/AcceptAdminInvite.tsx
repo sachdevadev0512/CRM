@@ -20,23 +20,73 @@ export default function AcceptAdminInvite() {
     let active = true;
     const client = getSupabase();
 
-    const checkForInviteSession = async () => {
-      if (!client) {
-        if (active) setScreenState('invalid');
-        return;
-      }
+    // Extract the invite's access/refresh tokens straight out of the URL ourselves
+    // and explicitly call setSession() with them, rather than relying on Supabase's
+    // ambient detectSessionInUrl auto-detection. That auto-detection can lose a race
+    // against an ALREADY-active session in this browser (e.g. the inviting admin
+    // testing the link on their own logged-in device): if getSession() is called
+    // before the URL-based exchange finishes, it silently returns the OLD session
+    // instead -- which is exactly what produced "Set a password for
+    // abhixwork@gmail.com" when the invite was actually for a different address.
+    // setSession() deterministically overwrites whatever was there, closing that race.
+    const establishInviteSession = async (): Promise<boolean> => {
+      if (!client) return false;
 
-      const { data: { session } } = await client.auth.getSession();
-      if (session?.user) {
-        if (active) {
-          setInviteEmail(session.user.email || '');
-          setScreenState('ready');
+      const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+      const hashParams = new URLSearchParams(rawHash);
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        const { data, error } = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        // Strip the tokens out of the URL immediately -- they shouldn't linger in the
+        // address bar or browser history once consumed.
+        window.history.replaceState(null, '', window.location.pathname);
+        if (!error && data.session?.user) {
+          if (active) {
+            setInviteEmail(data.session.user.email || '');
+            setScreenState('ready');
+          }
+          return true;
         }
-        return;
+        return false;
       }
 
-      // Supabase's client parses the invite link's tokens from the URL asynchronously
-      // on load; retry briefly before concluding the link is invalid/expired.
+      // PKCE-style redirect (a ?code= query param instead of a token hash).
+      const code = new URLSearchParams(window.location.search).get('code');
+      if (code) {
+        const { data, error } = await client.auth.exchangeCodeForSession(code);
+        window.history.replaceState(null, '', window.location.pathname);
+        if (!error && data.session?.user) {
+          if (active) {
+            setInviteEmail(data.session.user.email || '');
+            setScreenState('ready');
+          }
+          return true;
+        }
+        return false;
+      }
+
+      return false;
+    };
+
+    const checkForInviteSession = async () => {
+      const established = await establishInviteSession();
+      if (established) return;
+
+      // No tokens found in the URL this pass (e.g. a reload after they were already
+      // consumed and stripped) -- fall back to whatever session is currently active.
+      if (client) {
+        const { data: { session } } = await client.auth.getSession();
+        if (session?.user) {
+          if (active) {
+            setInviteEmail(session.user.email || '');
+            setScreenState('ready');
+          }
+          return;
+        }
+      }
+
       attemptsRef.current += 1;
       if (attemptsRef.current >= 10) {
         if (active) setScreenState('invalid');

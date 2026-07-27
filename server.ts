@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
+import nodemailer from 'nodemailer';
 
 async function startServer() {
   const app = express();
@@ -236,6 +237,67 @@ async function startServer() {
     return `${req.protocol}://${req.get('host')}`;
   }
 
+  // Lazily-built SMTP transporter for admin-invite emails. We send these ourselves
+  // instead of relying on Supabase Auth's built-in mailer (which is a shared,
+  // low-volume/testing-only service with a strict default rate limit) -- Supabase
+  // still generates the actual invite token/link via generateLink(), we just deliver
+  // it through our own SMTP account instead of Supabase's.
+  let mailTransporter: nodemailer.Transporter | null = null;
+  function getMailTransporter(): nodemailer.Transporter {
+    if (!mailTransporter) {
+      const host = process.env.SMTP_HOST;
+      const port = parseInt(process.env.SMTP_PORT || '465', 10);
+      const secure = process.env.SMTP_SECURE !== 'false';
+      const user = process.env.SMTP_USER;
+      const pass = process.env.SMTP_PASS;
+
+      if (!host || !user || !pass) {
+        throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS.');
+      }
+
+      mailTransporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass }
+      });
+    }
+    return mailTransporter;
+  }
+
+  async function sendInviteEmail(toEmail: string, actionLink: string): Promise<void> {
+    const transporter = getMailTransporter();
+    const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER!;
+    const fromName = process.env.SMTP_FROM_NAME || 'Middha Ventures';
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromAddress}>`,
+      to: toEmail,
+      subject: 'You have been invited to the Middha Ventures CRM',
+      html: `
+        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #111827; margin-bottom: 8px;">You've been invited</h2>
+          <p style="color: #4b5563; line-height: 1.6;">
+            An existing administrator has invited you to join the Middha Ventures Investment CRM.
+            Click the button below to set your password and activate your account.
+          </p>
+          <p style="margin: 28px 0;">
+            <a href="${actionLink}" style="background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
+              Activate Your Account
+            </a>
+          </p>
+          <p style="color: #9ca3af; font-size: 12px; line-height: 1.6;">
+            If the button doesn't work, copy and paste this link into your browser:<br />
+            <a href="${actionLink}" style="color:#6b7280;">${actionLink}</a>
+          </p>
+          <p style="color: #9ca3af; font-size: 12px; margin-top: 24px;">
+            If you weren't expecting this invitation, you can safely ignore this email.
+          </p>
+        </div>
+      `
+    });
+  }
+
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
@@ -309,10 +371,17 @@ async function startServer() {
       }
 
       const redirectTo = `${getAppOrigin(req)}/admin/accept-invite`;
-      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(trimmedEmail, { redirectTo });
-      if (inviteError || !inviteData || !inviteData.user) {
-        console.error('[Server API] inviteUserByEmail failed:', inviteError?.message);
-        return res.status(400).json({ error: inviteError?.message || 'Failed to send administrator invitation.' });
+      // generateLink() creates the auth user + a real invite token/link, exactly like
+      // inviteUserByEmail(), but returns the link to us instead of emailing it via
+      // Supabase's own mailer -- we send it ourselves via sendInviteEmail() below.
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
+        type: 'invite',
+        email: trimmedEmail,
+        options: { redirectTo }
+      });
+      if (inviteError || !inviteData || !inviteData.user || !inviteData.properties?.action_link) {
+        console.error('[Server API] generateLink (invite) failed:', inviteError?.message);
+        return res.status(400).json({ error: inviteError?.message || 'Failed to create administrator invitation.' });
       }
 
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -328,6 +397,16 @@ async function startServer() {
         console.error('[Server API] Failed to record admin_invites row:', insertError.message);
         await adminClient.auth.admin.deleteUser(inviteData.user.id);
         return res.status(500).json({ error: `Failed to record invitation: ${insertError.message}` });
+      }
+
+      try {
+        await sendInviteEmail(trimmedEmail, inviteData.properties.action_link);
+      } catch (mailError: any) {
+        console.error('[Server API] Failed to send invite email:', mailError.message);
+        // Roll back: no point leaving a pending invite the recipient never got a link for.
+        await adminClient.from('admin_invites').delete().eq('invited_user_id', inviteData.user.id);
+        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        return res.status(500).json({ error: `Failed to send invitation email: ${mailError.message}` });
       }
 
       await adminClient.from('audit_logs').insert({
@@ -421,14 +500,27 @@ async function startServer() {
         return res.status(400).json({ error: 'No pending invitation was found for that record.' });
       }
 
-      // Issue the replacement invite BEFORE tearing down the old one, so a failure here
-      // (rate limit, transient network error) leaves the original invite intact and
-      // resendable, instead of destroying it with nothing to replace it.
+      // Issue the replacement invite (and send its email) BEFORE tearing down the old
+      // one, so a failure at any point here (rate limit, transient network error, SMTP
+      // failure) leaves the original invite intact and resendable, instead of destroying
+      // it with nothing to replace it.
       const redirectTo = `${getAppOrigin(req)}/admin/accept-invite`;
-      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(invite.email, { redirectTo });
-      if (inviteError || !inviteData || !inviteData.user) {
-        console.error('[Server API] inviteUserByEmail (resend) failed:', inviteError?.message);
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
+        type: 'invite',
+        email: invite.email,
+        options: { redirectTo }
+      });
+      if (inviteError || !inviteData || !inviteData.user || !inviteData.properties?.action_link) {
+        console.error('[Server API] generateLink (resend) failed:', inviteError?.message);
         return res.status(400).json({ error: inviteError?.message || 'Failed to resend administrator invitation. The original invitation is still active.' });
+      }
+
+      try {
+        await sendInviteEmail(invite.email, inviteData.properties.action_link);
+      } catch (mailError: any) {
+        console.error('[Server API] Failed to send resend invite email:', mailError.message);
+        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        return res.status(500).json({ error: `Failed to send invitation email: ${mailError.message}. The original invitation is still active.` });
       }
 
       if (invite.invited_user_id) {
