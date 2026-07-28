@@ -642,8 +642,11 @@ export default function AdminCRM() {
     setStatusNotePrompt({ startupId: id, companyName: targetStartup.company_name, oldStatus: targetStartup.status, newStatus });
   };
 
-  const handleUpdateStatus = async (id: string, status: PipelineStatus) => {
-    if (!currentUser) return;
+  // Returns whether the status change actually persisted, so handleConfirmStatusChange
+  // (the only caller) can avoid saving a note or closing the modal as if it succeeded
+  // when the underlying write actually failed and was rolled back.
+  const handleUpdateStatus = async (id: string, status: PipelineStatus): Promise<boolean> => {
+    if (!currentUser) return false;
 
     // Save previous state for potential rollback
     const previousStartups = [...startups];
@@ -664,13 +667,16 @@ export default function AdminCRM() {
         setStartups(previousStartups);
         setSelectedStartup(previousSelectedStartup);
         alert('Failed to update status on the server. Change reverted.');
+        return false;
       }
+      return true;
     } catch (err: any) {
       console.error(err);
       // Rollback on network/RLS exception
       setStartups(previousStartups);
       setSelectedStartup(previousSelectedStartup);
       alert('Failed to update status: ' + err.message);
+      return false;
     }
   };
 
@@ -683,7 +689,14 @@ export default function AdminCRM() {
 
     setIsSavingStatusNote(true);
     try {
-      await handleUpdateStatus(startupId, newStatus);
+      const statusUpdated = await handleUpdateStatus(startupId, newStatus);
+      if (!statusUpdated) {
+        // handleUpdateStatus already alerted the specific failure reason and rolled
+        // back its own optimistic state -- stop here so we don't save a note describing
+        // a status change that didn't actually happen, and don't close the modal as if
+        // the confirm succeeded.
+        return;
+      }
       if (noteToSave) {
         await dbService.addNote(startupId, noteToSave, currentUser);
       }
