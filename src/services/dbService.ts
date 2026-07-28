@@ -111,6 +111,34 @@ class SupabaseServiceImpl implements DbService {
     return isSupabaseConfigured;
   }
 
+  // Shared audit-log writer used by every action below. Supabase-js does NOT throw on
+  // a DB-level failure (RLS denial, constraint violation) -- it resolves with
+  // `{ error: {...} }` -- so a bare `await ...insert(...)` with no destructuring (the
+  // previous pattern here) silently loses the audit trail entry with no trace at all,
+  // not even a console warning. This checks the resolved error explicitly (in addition
+  // to catching genuine thrown exceptions like network failures) and always logs a
+  // warning on failure, while still never throwing itself -- an audit-log hiccup must
+  // never block the primary action (status change, note, delete) it's describing.
+  private async logAuditEvent(entry: {
+    user_id: string;
+    user_email: string;
+    action: string;
+    target_id: string;
+    target_name: string;
+    details?: any;
+  }): Promise<void> {
+    const client: any = getSupabase();
+    if (!client) return;
+    try {
+      const { error } = await client.from('audit_logs').insert(entry);
+      if (error) {
+        console.warn(`Failed to write audit log for action "${entry.action}":`, error);
+      }
+    } catch (e) {
+      console.warn(`Failed to write audit log for action "${entry.action}":`, e);
+    }
+  }
+
   async getCurrentUser() {
     const client: any = getSupabase();
     if (!client) return null;
@@ -315,8 +343,7 @@ class SupabaseServiceImpl implements DbService {
       throw error;
     }
 
-    // Insert Audit Log
-    await client.from('audit_logs').insert({
+    await this.logAuditEvent({
       user_id: user.id,
       user_email: user.email,
       action: 'Status changed',
@@ -347,8 +374,7 @@ class SupabaseServiceImpl implements DbService {
       throw error;
     }
 
-    // Insert Audit Log
-    await client.from('audit_logs').insert({
+    await this.logAuditEvent({
       user_id: user.id,
       user_email: user.email,
       action: 'Delete',
@@ -402,8 +428,7 @@ class SupabaseServiceImpl implements DbService {
       throw error;
     }
 
-    // Insert Audit Log
-    await client.from('audit_logs').insert({
+    await this.logAuditEvent({
       user_id: user.id,
       user_email: user.email,
       action: 'Reviewer note changes',
@@ -443,8 +468,7 @@ class SupabaseServiceImpl implements DbService {
       throw error;
     }
 
-    // Insert Audit Log
-    await client.from('audit_logs').insert({
+    await this.logAuditEvent({
       user_id: user.id,
       user_email: user.email,
       action: 'Reviewer note changes',
@@ -585,25 +609,19 @@ class SupabaseServiceImpl implements DbService {
       );
     }
 
-    // Insert Audit Log for revocation if user details are provided. The admin row is
-    // already gone at this point (delete above succeeded), so a failure here must not
-    // throw out of this function -- that would surface as "revoke failed" in the UI
-    // even though the revoke actually succeeded. Wrapped in try/catch rather than
-    // chaining .catch() directly on the query builder, which isn't a real Promise
-    // until awaited/then()'d and doesn't implement .catch() as a standalone method.
+    // Log the revocation if user details are provided. The admin row is already gone
+    // at this point (delete above succeeded), so a failure here must never surface as
+    // "revoke failed" in the UI when the revoke actually succeeded -- logAuditEvent
+    // checks both the resolved error and thrown exceptions, and never throws itself.
     if (user && email) {
-      try {
-        await client.from('audit_logs').insert({
-          user_id: user.id,
-          user_email: user.email,
-          action: 'Administrator Revoked',
-          target_id: id,
-          target_name: email,
-          details: { message: `Administrator privilege revoked for ${email}.`, email }
-        });
-      } catch (e: any) {
-        console.warn('Failed to log admin revocation:', e);
-      }
+      await this.logAuditEvent({
+        user_id: user.id,
+        user_email: user.email,
+        action: 'Administrator Revoked',
+        target_id: id,
+        target_name: email,
+        details: { message: `Administrator privilege revoked for ${email}.`, email }
+      });
     }
 
     return true;

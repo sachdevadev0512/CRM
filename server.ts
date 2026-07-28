@@ -395,7 +395,15 @@ async function startServer() {
       });
       if (insertError) {
         console.error('[Server API] Failed to record admin_invites row:', insertError.message);
-        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        try {
+          await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        } catch (rollbackError: any) {
+          console.error(
+            `[Server API] CRITICAL: failed to roll back orphaned invite user after admin_invites insert failure. ` +
+            `Manual cleanup required in Supabase Auth dashboard -- user id: ${inviteData.user.id}, email: ${trimmedEmail}. ` +
+            `Rollback error: ${rollbackError.message}`
+          );
+        }
         return res.status(500).json({ error: `Failed to record invitation: ${insertError.message}` });
       }
 
@@ -404,8 +412,21 @@ async function startServer() {
       } catch (mailError: any) {
         console.error('[Server API] Failed to send invite email:', mailError.message);
         // Roll back: no point leaving a pending invite the recipient never got a link for.
-        await adminClient.from('admin_invites').delete().eq('invited_user_id', inviteData.user.id);
-        await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        // If the rollback itself also fails, that email is now stuck (an unconfirmed
+        // auth user exists with no invite record pointing at it, and generateLink()
+        // will refuse to re-invite that address until it's manually removed) -- log
+        // loudly with everything needed to find and clean it up by hand, rather than
+        // letting it disappear silently.
+        try {
+          await adminClient.from('admin_invites').delete().eq('invited_user_id', inviteData.user.id);
+          await adminClient.auth.admin.deleteUser(inviteData.user.id);
+        } catch (rollbackError: any) {
+          console.error(
+            `[Server API] CRITICAL: failed to roll back orphaned invite user after email send failure. ` +
+            `Manual cleanup required in Supabase Auth dashboard -- user id: ${inviteData.user.id}, email: ${trimmedEmail}. ` +
+            `Rollback error: ${rollbackError.message}`
+          );
+        }
         return res.status(500).json({ error: `Failed to send invitation email: ${mailError.message}` });
       }
 
