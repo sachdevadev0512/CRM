@@ -32,8 +32,8 @@ import {
   Send,
   Ban
 } from 'lucide-react';
-import { Startup, AuditLog, PipelineStatus, Admin, AdminInvite } from '../types';
-import { dbService } from '../services/dbService';
+import { Startup, AuditLog, PipelineStatus, Admin, AdminInvite } from '../../shared/src/types';
+import { apiClient } from './apiClient';
 import StartupDetail from './StartupDetail';
 import AcceptAdminInvite from './AcceptAdminInvite';
 
@@ -506,11 +506,11 @@ export default function AdminCRM() {
       document.body.removeChild(link);
 
       if (currentUser) {
-        dbService.logCSVExport(currentUser, {
+        apiClient.logCSVExport({
           type: fileName.startsWith('filtered') ? 'Filtered' : fileName.startsWith('selected') ? 'Selected' : 'All',
           count: startupsToExport.length
         }).then(() => {
-          dbService.getAuditLogs().then(setAuditLogs).catch(console.error);
+          apiClient.getAuditLogs().then(setAuditLogs).catch(console.error);
         }).catch((auditErr) => {
           console.error('Audit log failed:', auditErr);
           setAdminActionError(`CSV Exported, but audit log failed: ${auditErr.message || auditErr}`);
@@ -539,14 +539,14 @@ export default function AdminCRM() {
 
   useEffect(() => {
     if (!isInitializingAuth) {
-      const isLoginPath = location.pathname === '/admin/login';
-      const isAcceptInvitePath = location.pathname === '/admin/accept-invite';
+      const isLoginPath = location.pathname === '/login';
+      const isAcceptInvitePath = location.pathname === '/accept-invite';
       const isAuthAdmin = currentUser && currentUser.isAdmin;
 
       if (!isAuthAdmin && !isLoginPath && !isAcceptInvitePath) {
-        navigate('/admin/login', { replace: true });
+        navigate('/login', { replace: true });
       } else if (isAuthAdmin && isLoginPath) {
-        navigate('/admin', { replace: true });
+        navigate('/', { replace: true });
       }
     }
   }, [isInitializingAuth, currentUser, location.pathname, navigate]);
@@ -555,7 +555,7 @@ export default function AdminCRM() {
     setIsInitializingAuth(true);
     setAuthError('');
     try {
-      const user = await dbService.getCurrentUser();
+      const user = await apiClient.getCurrentUser();
       if (user) {
         setCurrentUser(user);
         if (user.isAdmin) {
@@ -577,10 +577,10 @@ export default function AdminCRM() {
     setCrmError('');
     try {
       const [startupsList, logs, admins, invites] = await Promise.all([
-        dbService.getStartups(),
-        dbService.getAuditLogs(),
-        dbService.getAdmins(),
-        dbService.getAdminInvites()
+        apiClient.getStartups(),
+        apiClient.getAuditLogs(),
+        apiClient.getAdmins(),
+        apiClient.getAdminInvites()
       ]);
       setStartups(startupsList);
       setAuditLogs(logs);
@@ -603,7 +603,7 @@ export default function AdminCRM() {
     setAuthLoading(true);
     try {
       // Sign In Flow (Standard Email + Password login)
-      const res = await dbService.signIn(authEmail.trim(), authPassword.trim());
+      const res = await apiClient.signIn(authEmail.trim(), authPassword.trim());
       if (res.success && res.user) {
         setCurrentUser(res.user);
         if (res.user.isAdmin) {
@@ -619,7 +619,7 @@ export default function AdminCRM() {
   };
 
   const handleSignOut = async () => {
-    await dbService.signOut();
+    await apiClient.signOut();
     setCurrentUser(null);
     setAuthEmail('');
     setAuthPassword('');
@@ -661,7 +661,7 @@ export default function AdminCRM() {
     }
 
     try {
-      const success = await dbService.updateStartupStatus(id, status, currentUser);
+      const success = await apiClient.updateStartupStatus(id, status);
       if (!success) {
         // Rollback if service fails to update
         setStartups(previousStartups);
@@ -698,9 +698,9 @@ export default function AdminCRM() {
         return;
       }
       if (noteToSave) {
-        await dbService.addNote(startupId, noteToSave, currentUser);
+        await apiClient.addNote(startupId, noteToSave);
       }
-      const logs = await dbService.getAuditLogs();
+      const logs = await apiClient.getAuditLogs();
       setAuditLogs(logs);
       setActivityRefreshTick(t => t + 1);
       setStatusNotePrompt(null);
@@ -729,7 +729,7 @@ export default function AdminCRM() {
 
     setAdminActionLoading(true);
     try {
-      const success = await dbService.inviteAdmin(newAdminEmail.trim());
+      const success = await apiClient.inviteAdmin(newAdminEmail.trim());
       if (success) {
         setAdminActionSuccess(`Invitation sent to ${newAdminEmail}. They'll gain admin access once they set their password.`);
         setNewAdminEmail('');
@@ -752,7 +752,7 @@ export default function AdminCRM() {
     setAdminActionSuccess('');
     setInviteRowActionId(inviteId);
     try {
-      const success = await dbService.cancelAdminInvite(inviteId);
+      const success = await apiClient.cancelAdminInvite(inviteId);
       if (success) {
         setAdminActionSuccess(`Cancelled the pending invitation for ${email}.`);
         await fetchCRMData();
@@ -770,7 +770,7 @@ export default function AdminCRM() {
     setAdminActionSuccess('');
     setInviteRowActionId(inviteId);
     try {
-      const success = await dbService.resendAdminInvite(inviteId);
+      const success = await apiClient.resendAdminInvite(inviteId);
       if (success) {
         setAdminActionSuccess(`Resent the invitation to ${email}.`);
         await fetchCRMData();
@@ -796,7 +796,7 @@ export default function AdminCRM() {
     setAdminActionError('');
     setAdminActionSuccess('');
     try {
-      const success = await dbService.deleteAdmin(adminId, adminEmail, currentUser || undefined);
+      const success = await apiClient.deleteAdmin(adminId, adminEmail);
       if (success) {
         setAdminActionSuccess(`Successfully revoked Admin privileges for ${adminEmail}.`);
         await fetchCRMData();
@@ -969,11 +969,11 @@ export default function AdminCRM() {
   // Accept-invite is reachable regardless of admin status: the invitee has a valid
   // Supabase Auth session (from following the invite email's link) but isn't in
   // public.admins yet — that's exactly what this screen finalizes.
-  if (location.pathname === '/admin/accept-invite') {
+  if (location.pathname === '/accept-invite') {
     return <AcceptAdminInvite />;
   }
 
-  const isLoginPath = location.pathname === '/admin/login';
+  const isLoginPath = location.pathname === '/login';
   const isAuthAdmin = currentUser && currentUser.isAdmin;
 
   if (!currentUser || !currentUser.isAdmin) {

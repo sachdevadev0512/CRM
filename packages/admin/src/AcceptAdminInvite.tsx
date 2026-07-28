@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Lock, Key, ShieldCheck, AlertCircle, ArrowRight, RefreshCw, MailWarning } from 'lucide-react';
-import { getSupabase } from '../services/dbService';
-import { dbService } from '../services/dbService';
+import { apiClient } from './apiClient';
+import { authStore } from './authStore';
 
 type InviteScreenState = 'checking' | 'invalid' | 'ready' | 'success';
 
@@ -18,69 +18,42 @@ export default function AcceptAdminInvite() {
 
   useEffect(() => {
     let active = true;
-    const client = getSupabase();
 
-    // Extract the invite's access/refresh tokens straight out of the URL ourselves
-    // and explicitly call setSession() with them, rather than relying on Supabase's
-    // ambient detectSessionInUrl auto-detection. That auto-detection can lose a race
-    // against an ALREADY-active session in this browser (e.g. the inviting admin
-    // testing the link on their own logged-in device): if getSession() is called
-    // before the URL-based exchange finishes, it silently returns the OLD session
-    // instead -- which is exactly what produced "Set a password for
-    // abhixwork@gmail.com" when the invite was actually for a different address.
-    // setSession() deterministically overwrites whatever was there, closing that race.
-    const establishInviteSession = async (): Promise<boolean> => {
-      if (!client) return false;
-
+    // The invite email's link points straight at Supabase, which redirects back here with the
+    // session tokens already embedded in the URL fragment -- no Supabase client is needed to
+    // "receive" them, they're just handed to the browser by the redirect. Storing them via
+    // authStore immediately (rather than relying on ambient auto-detection) is what closes the
+    // session race that previously produced "Set a password for {the wrong admin's email}" when
+    // the inviting admin tested the link on their own already-logged-in device: explicitly
+    // parsing and storing THESE tokens deterministically overwrites whatever was there before.
+    const establishInviteSession = (): boolean => {
       const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
       const hashParams = new URLSearchParams(rawHash);
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
+      if (!accessToken || !refreshToken) return false;
 
-      if (accessToken && refreshToken) {
-        const { data, error } = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        // Strip the tokens out of the URL immediately -- they shouldn't linger in the
-        // address bar or browser history once consumed.
-        window.history.replaceState(null, '', window.location.pathname);
-        if (!error && data.session?.user) {
-          if (active) {
-            setInviteEmail(data.session.user.email || '');
-            setScreenState('ready');
-          }
-          return true;
-        }
-        return false;
-      }
+      const expiresAtParam = hashParams.get('expires_at');
+      const expiresInParam = hashParams.get('expires_in');
+      const expiresAt = expiresAtParam
+        ? parseInt(expiresAtParam, 10)
+        : Math.floor(Date.now() / 1000) + parseInt(expiresInParam || '3600', 10);
 
-      // PKCE-style redirect (a ?code= query param instead of a token hash).
-      const code = new URLSearchParams(window.location.search).get('code');
-      if (code) {
-        const { data, error } = await client.auth.exchangeCodeForSession(code);
-        window.history.replaceState(null, '', window.location.pathname);
-        if (!error && data.session?.user) {
-          if (active) {
-            setInviteEmail(data.session.user.email || '');
-            setScreenState('ready');
-          }
-          return true;
-        }
-        return false;
-      }
-
-      return false;
+      authStore.setSession({ access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt });
+      // Strip the tokens out of the URL immediately -- they shouldn't linger in the address
+      // bar or browser history once consumed.
+      window.history.replaceState(null, '', window.location.pathname);
+      return true;
     };
 
     const checkForInviteSession = async () => {
-      const established = await establishInviteSession();
-      if (established) return;
+      const established = establishInviteSession();
 
-      // No tokens found in the URL this pass (e.g. a reload after they were already
-      // consumed and stripped) -- fall back to whatever session is currently active.
-      if (client) {
-        const { data: { session } } = await client.auth.getSession();
-        if (session?.user) {
+      if (established || authStore.hasSession()) {
+        const user = await apiClient.getCurrentUser();
+        if (user) {
           if (active) {
-            setInviteEmail(session.user.email || '');
+            setInviteEmail(user.email);
             setScreenState('ready');
           }
           return;
@@ -117,7 +90,8 @@ export default function AcceptAdminInvite() {
 
     setIsSubmitting(true);
     try {
-      const success = await dbService.acceptAdminInvite(password);
+      await apiClient.setPassword(password);
+      const success = await apiClient.acceptAdminInvite();
       if (success) {
         setScreenState('success');
       } else {

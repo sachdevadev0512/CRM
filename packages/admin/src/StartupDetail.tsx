@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, FileDown, Plus, Trash2, Send, Clock, RefreshCw } from 'lucide-react';
-import { Startup, Note, PipelineStatus, AuditLog } from '../types';
-import { dbService } from '../services/dbService';
-import { safeHref } from '../services/securityUtils';
+import { Startup, Note, PipelineStatus, AuditLog } from '../../shared/src/types';
+import { apiClient } from './apiClient';
+import { safeHref } from '../../shared/src/securityUtils';
 
 interface StartupDetailProps {
   startup: Startup;
@@ -51,8 +51,8 @@ export default function StartupDetail({
     if (!silent) setNotesLoading(true);
     try {
       const [notesList, auditLogs] = await Promise.all([
-        dbService.getNotes(startup.id),
-        dbService.getAuditLogsForTarget(startup.id)
+        apiClient.getNotes(startup.id),
+        apiClient.getAuditLogsForTarget(startup.id)
       ]);
       setNotes(notesList);
       setStatusHistory(auditLogs.filter(log => (log.action || '').toLowerCase().includes('status changed')));
@@ -76,7 +76,7 @@ export default function StartupDetail({
         return;
       }
 
-      const signedUrl = await dbService.getSignedUrl(startup.pitch_deck_path);
+      const signedUrl = await apiClient.getSignedUrl(startup.id, startup.pitch_deck_path);
       if (signedUrl) {
         setCachedSignedUrl(signedUrl);
         // Expiry from Supabase Storage is configured to 3600 seconds (1 hour)
@@ -99,7 +99,7 @@ export default function StartupDetail({
 
     setIsSubmittingNote(true);
     try {
-      const note = await dbService.addNote(startup.id, newNoteContent, currentUser);
+      const note = await apiClient.addNote(startup.id, newNoteContent);
       if (note) {
         setNotes((prev) => [note, ...prev]);
         setNewNoteContent('');
@@ -115,7 +115,7 @@ export default function StartupDetail({
   const handleDeleteNote = async (noteId: string) => {
     if (!confirm('Are you sure you want to delete this reviewer note?')) return;
     try {
-      const success = await dbService.deleteNote(noteId, currentUser);
+      const success = await apiClient.deleteNote(noteId);
       if (success) {
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
       }
@@ -128,7 +128,7 @@ export default function StartupDetail({
   const handleDeleteStartup = async () => {
     setIsDeleting(true);
     try {
-      const success = await dbService.deleteStartup(startup.id, currentUser);
+      const success = await apiClient.deleteStartup(startup.id);
       if (success) {
         onDelete();
         onClose();

@@ -1,40 +1,17 @@
 {
-  "name": "react-example",
+  "name": "crm-monorepo",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs",
-    "start": "NODE_ENV=production node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.110.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "nodemailer": "^9.0.3",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "react-router-dom": "^7.18.1",
-    "vite": "^6.2.3"
-  },
-  "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^22.14.0",
-    "@types/nodemailer": "^8.0.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "dev:backend": "npm run dev --workspace=@crm/backend",
+    "dev:form": "npm run dev --workspace=@crm/form",
+    "dev:admin": "npm run dev --workspace=@crm/admin",
+    "build": "npm run lint --workspace=@crm/shared && npm run build --workspace=@crm/form && npm run build --workspace=@crm/admin && npm run build --workspace=@crm/backend",
+    "start": "npm run start --workspace=@crm/backend",
+    "lint": "npm run lint --workspace=@crm/shared && npm run lint --workspace=@crm/backend && npm run lint --workspace=@crm/form && npm run lint --workspace=@crm/admin",
+    "clean": "rm -rf packages/*/dist"
   }
 }

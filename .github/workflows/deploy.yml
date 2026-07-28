@@ -22,5 +22,6 @@ jobs:
             git reset --hard origin/abhishek
             npm install
             npm run build
-            pm2 restart crm
+            pm2 delete crm 2>/dev/null || true
+            pm2 startOrRestart ecosystem.config.cjs --update-env
             pm2 save

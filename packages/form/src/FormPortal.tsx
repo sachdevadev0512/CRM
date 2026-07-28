@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Upload, CheckCircle2, AlertCircle, Building2, Globe, Mail, User, Shield, Video, ArrowRight, RefreshCw } from 'lucide-react';
-import { dbService } from '../services/dbService';
-import { isValidHttpUrl, validateLinkedInUrl } from '../services/securityUtils';
+import { apiClient } from './apiClient';
+import { isValidHttpUrl, validateLinkedInUrl } from '../../shared/src/securityUtils';
 
 export default function FormPortal() {
   const [formFields, setFormFields] = useState({
@@ -442,7 +442,7 @@ ${formFields.revenue_status === 'Revenue Generating' ? `${formFields.currency} $
         current_financial_year_revenue: formFields.revenue_status === 'Revenue Generating' ? formFields.current_financial_year_revenue : '',
       };
 
-      const response = await dbService.submitApplication(payload, turnstileToken);
+      const response = await apiClient.submitApplication(payload, turnstileToken);
       if (response.success && response.id) {
         localStorage.setItem('last_submission_time', String(Date.now()));
         setSubmittedId(response.id);
