@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, FileDown, Plus, Trash2, Send, Clock, RefreshCw, Phone } from 'lucide-react';
+import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, Plus, Trash2, Send, Clock, RefreshCw, Phone } from 'lucide-react';
 import { Startup, Note, PipelineStatus, AuditLog } from '../../shared/src/types';
 import { apiClient } from './apiClient';
 import { safeHref } from '../../shared/src/securityUtils';
@@ -30,12 +30,9 @@ export default function StartupDetail({
   const [statusHistory, setStatusHistory] = useState<AuditLog[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [notesLoading, setNotesLoading] = useState(false);
-  const [cachedSignedUrl, setCachedSignedUrl] = useState<string | null>(null);
-  const [signedUrlExpiry, setSignedUrlExpiry] = useState<number | null>(null);
 
   useEffect(() => {
     fetchActivity();
@@ -63,34 +60,16 @@ export default function StartupDetail({
     }
   };
 
-  const handleDownloadPitchDeck = async () => {
-    setIsDownloading(true);
-    try {
-      // Check if we have a valid non-expired signed URL cached in state (with 5 minutes safety threshold)
-      if (cachedSignedUrl && signedUrlExpiry && Date.now() < signedUrlExpiry - 300000) {
-        // noopener,noreferrer prevents the opened document from reaching back
-        // via window.opener (reverse tabnabbing), in case a malicious file
-        // was ever stored under this path.
-        window.open(cachedSignedUrl, '_blank', 'noopener,noreferrer');
-        setIsDownloading(false);
-        return;
-      }
-
-      const signedUrl = await apiClient.getSignedUrl(startup.id, startup.pitch_deck_path);
-      if (signedUrl) {
-        setCachedSignedUrl(signedUrl);
-        // Expiry from Supabase Storage is configured to 3600 seconds (1 hour)
-        setSignedUrlExpiry(Date.now() + 3600000);
-        window.open(signedUrl, '_blank', 'noopener,noreferrer');
-      } else {
-        alert('Could not retrieve a valid download link.');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Error fetching signed URL for pitch deck.');
-    } finally {
-      setIsDownloading(false);
+  // The pitch deck is a plain link the applicant pastes in (Step 6 of the multi-step form), not
+  // an uploaded file -- there is no Supabase Storage bucket wired up anywhere in this app to
+  // download from (`pitch_deck_path` is always empty). This just opens that link directly.
+  // noopener,noreferrer prevents the opened tab from reaching back via window.opener.
+  const handleOpenPitchDeck = () => {
+    if (!startup.pitch_deck_link) {
+      alert('No pitch deck link is available for this application.');
+      return;
     }
+    window.open(safeHref(startup.pitch_deck_link), '_blank', 'noopener,noreferrer');
   };
 
   const handleAddNote = async (e: React.FormEvent) => {
@@ -151,15 +130,10 @@ export default function StartupDetail({
     'Archived',
   ];
 
-  const getCurrencySymbol = (curr: string) => {
-    switch (curr) {
-      case 'USD': return '$';
-      case 'EUR': return '€';
-      default: return '₹';
-    }
-  };
-
-  const currencySymbol = getCurrencySymbol(startup.currency || 'INR');
+  // Always render the Rupee symbol regardless of the stored `currency` value -- per product
+  // decision, every amount in the CRM displays as INR for consistency, rather than switching
+  // symbols based on whichever currency an applicant happened to select on the form.
+  const currencySymbol = '₹';
   const currencyCode = startup.currency || 'INR';
   const isDraft = startup.status === 'In Progress';
 
@@ -233,19 +207,14 @@ export default function StartupDetail({
           </div>
 
           <div className="flex justify-start sm:justify-end gap-2">
-            {!isDraft && (
+            {!isDraft && startup.pitch_deck_link && (
               <button
-                onClick={handleDownloadPitchDeck}
-                disabled={isDownloading}
-                className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 disabled:bg-neutral-400 text-white font-medium text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors shadow-xs"
-                id="btn-download-pitch-deck"
+                onClick={handleOpenPitchDeck}
+                className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors shadow-xs"
+                id="btn-open-pitch-deck"
               >
-                {isDownloading ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FileDown className="h-3.5 w-3.5" />
-                )}
-                Download Pitch Deck
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Pitch Deck
               </button>
             )}
 

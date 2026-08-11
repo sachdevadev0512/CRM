@@ -1377,7 +1377,7 @@ export default function AdminCRM() {
                             </div>
 
                             <div className="pt-2 border-t border-neutral-100 flex justify-between items-center text-[9px] font-mono text-neutral-400">
-                              <span>Raise: ${(s.target_raise || 0).toLocaleString()}</span>
+                              <span>Raise: ₹{(s.target_raise || 0).toLocaleString()}</span>
                             </div>
 
                             {/* Fast Move dropdown on hover */}
@@ -1469,7 +1469,7 @@ export default function AdminCRM() {
                           </span>
                         </td>
                         <td className="px-6 py-3 font-mono text-neutral-900 font-semibold">
-                          ${(s.target_raise || 0).toLocaleString()}
+                          ₹{(s.target_raise || 0).toLocaleString()}
                         </td>
                         <td className="px-6 py-3">
                           <span
