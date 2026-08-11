@@ -237,7 +237,7 @@ export default function AdminCRM() {
 
   // Optional "add a note about this status change" popup, shown after any status
   // change (Pipeline Board quick-move dropdown or the applicant drawer's selector).
-  const [statusNotePrompt, setStatusNotePrompt] = useState<{ startupId: string; companyName: string; oldStatus: PipelineStatus; newStatus: PipelineStatus } | null>(null);
+  const [statusNotePrompt, setStatusNotePrompt] = useState<{ startupId: string; companyName: string | null; oldStatus: PipelineStatus | 'In Progress'; newStatus: PipelineStatus } | null>(null);
   const [statusNoteText, setStatusNoteText] = useState('');
   const [isSavingStatusNote, setIsSavingStatusNote] = useState(false);
   // Bumped whenever a note is saved from outside the currently-open StartupDetail
@@ -246,7 +246,7 @@ export default function AdminCRM() {
   const [activityRefreshTick, setActivityRefreshTick] = useState(0);
 
   // UI Navigation states
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'table' | 'logs' | 'admins'>('pipeline');
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'table' | 'drafts' | 'logs' | 'admins'>('pipeline');
   const [selectedStartup, setSelectedStartup] = useState<Startup | null>(null);
 
   // Row selection and export states
@@ -820,14 +820,19 @@ export default function AdminCRM() {
     'Archived',
   ];
 
+  // Applications the applicant hasn't finished submitting yet never enter the reviewer
+  // pipeline/table -- they live only in the separate Drafts tab.
+  const reviewableStartups = startups.filter(s => s.status !== 'In Progress');
+  const draftStartups = startups.filter(s => s.status === 'In Progress');
+
   // Filtering Logic
-  const filteredStartups = startups.filter(s => {
+  const filteredStartups = reviewableStartups.filter(s => {
     const matchesSearch =
-      s.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.one_line_pitch.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.founder_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.hq_location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.sector.toLowerCase().includes(searchTerm.toLowerCase());
+      (s.company_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.one_line_pitch || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.founder_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.hq_location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.sector || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesSector = selectedSector === 'All' || s.sector === selectedSector;
     const matchesStage = selectedStage === 'All' || s.stage === selectedStage;
@@ -835,14 +840,26 @@ export default function AdminCRM() {
     return matchesSearch && matchesSector && matchesStage;
   });
 
+  // Drafts tab: same search box, no sector/stage filters (many of those fields may not be
+  // filled in yet on an in-progress application).
+  const filteredDraftStartups = draftStartups.filter(s =>
+    (s.company_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (s.submitter_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (s.submitter_email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (s.founder_email || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  const sortedDraftStartups = [...filteredDraftStartups].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  );
+
   // Sorting Logic
   const sortedStartups = [...filteredStartups].sort((a, b) => {
     let valueA: any = a.created_at;
     let valueB: any = b.created_at;
 
     if (sortBy === 'name') {
-      valueA = a.company_name.toLowerCase();
-      valueB = b.company_name.toLowerCase();
+      valueA = (a.company_name || '').toLowerCase();
+      valueB = (b.company_name || '').toLowerCase();
     } else if (sortBy === 'raise') {
       valueA = a.target_raise;
       valueB = b.target_raise;
@@ -943,9 +960,10 @@ export default function AdminCRM() {
   const paginatedLogs = filteredLogs.slice(logStartIndex, logStartIndex + logsPerPage);
   const totalLogPages = Math.ceil(filteredLogs.length / logsPerPage);
 
-  // Unique list of sectors and stages for filter buttons
-  const availableSectors = ['All', ...Array.from(new Set(startups.map(s => s.sector)))];
-  const availableStages = ['All', ...Array.from(new Set(startups.map(s => s.stage)))];
+  // Unique list of sectors and stages for filter buttons (drafts are excluded -- many haven't
+  // reached the step that fills these in yet, and they aren't part of the reviewer pipeline).
+  const availableSectors = ['All', ...Array.from(new Set(reviewableStartups.map(s => s.sector).filter((s): s is string => !!s)))];
+  const availableStages = ['All', ...Array.from(new Set(reviewableStartups.map(s => s.stage).filter((s): s is string => !!s)))];
 
   const toggleSort = (field: 'name' | 'raise' | 'date') => {
     if (sortBy === field) {
@@ -1193,6 +1211,21 @@ export default function AdminCRM() {
               Deal Table
             </button>
             <button
+              onClick={() => setActiveTab('drafts')}
+              className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-md font-semibold text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'drafts' ? 'bg-neutral-900 text-white shadow-2xs' : 'text-neutral-500 hover:text-neutral-900'
+              }`}
+              id="tab-drafts"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              Drafts
+              {draftStartups.length > 0 && (
+                <span className="px-1.5 py-0.5 bg-neutral-200 text-[9px] font-bold rounded-full text-neutral-600 font-mono">
+                  {draftStartups.length}
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab('logs')}
               className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-md font-semibold text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'logs' ? 'bg-neutral-900 text-white shadow-2xs' : 'text-neutral-500 hover:text-neutral-900'
@@ -1214,15 +1247,15 @@ export default function AdminCRM() {
             </button>
           </div>
 
-          {/* Filtering options - Only shown for Pipeline & Table */}
-          {(activeTab === 'pipeline' || activeTab === 'table') && (
+          {/* Filtering options - Only shown for Pipeline, Table & Drafts */}
+          {(activeTab === 'pipeline' || activeTab === 'table' || activeTab === 'drafts') && (
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 w-full lg:w-auto lg:flex lg:items-center">
               {/* Search bar */}
               <div className="relative lg:w-64">
                 <Search className="absolute left-3 top-2 h-3.5 w-3.5 text-neutral-400" />
                 <input
                   type="text"
-                  placeholder="Search deals..."
+                  placeholder={activeTab === 'drafts' ? 'Search drafts...' : 'Search deals...'}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none h-8"
@@ -1230,6 +1263,9 @@ export default function AdminCRM() {
                 />
               </div>
 
+              {/* Sector & Stage filters + Export don't apply to an in-progress draft */}
+              {activeTab !== 'drafts' && (
+                <>
               {/* Sector filter */}
               <div className="flex items-center gap-2 lg:w-44 bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 h-8">
                 <Filter className="h-3.5 w-3.5 text-neutral-400 shrink-0" />
@@ -1269,6 +1305,8 @@ export default function AdminCRM() {
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
               </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1307,9 +1345,9 @@ export default function AdminCRM() {
                       </div>
                     ) : (
                       columnStartups.map(s => {
-                        const showPitch = s.one_line_pitch && 
-                          s.one_line_pitch.trim() !== '' && 
-                          s.one_line_pitch.toLowerCase().trim() !== s.company_name.toLowerCase().trim();
+                        const showPitch = s.one_line_pitch &&
+                          s.one_line_pitch.trim() !== '' &&
+                          s.one_line_pitch.toLowerCase().trim() !== (s.company_name || '').toLowerCase().trim();
 
                         return (
                           <div
@@ -1339,7 +1377,7 @@ export default function AdminCRM() {
                             </div>
 
                             <div className="pt-2 border-t border-neutral-100 flex justify-between items-center text-[9px] font-mono text-neutral-400">
-                              <span>Raise: ${s.target_raise.toLocaleString()}</span>
+                              <span>Raise: ${(s.target_raise || 0).toLocaleString()}</span>
                             </div>
 
                             {/* Fast Move dropdown on hover */}
@@ -1431,7 +1469,7 @@ export default function AdminCRM() {
                           </span>
                         </td>
                         <td className="px-6 py-3 font-mono text-neutral-900 font-semibold">
-                          ${s.target_raise.toLocaleString()}
+                          ${(s.target_raise || 0).toLocaleString()}
                         </td>
                         <td className="px-6 py-3">
                           <span
@@ -1507,6 +1545,75 @@ export default function AdminCRM() {
                 </div>
               </div>
             )}
+          </div>
+        ) : activeTab === 'drafts' ? (
+          /* IN-PROGRESS DRAFTS TAB -- applicants who started but haven't finished submitting.
+             Kept separate from the reviewer pipeline entirely (see reviewableStartups above). */
+          <div className="border border-neutral-200 bg-white rounded-xl overflow-hidden shadow-3xs" id="drafts-table">
+            <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/20 text-left">
+              <h3 className="font-semibold text-sm text-neutral-900">In-Progress Applications</h3>
+              <p className="text-neutral-500 text-[11px] mt-0.5">
+                Started but not yet submitted. These aren't part of the reviewer pipeline until the applicant finishes all 6 steps.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-neutral-50 border-b border-neutral-250 text-neutral-500 font-semibold uppercase tracking-wider font-mono">
+                    <th className="px-6 py-3">Company Name</th>
+                    <th className="px-6 py-3">Submitted By</th>
+                    <th className="px-6 py-3">Progress</th>
+                    <th className="px-6 py-3">Last Updated</th>
+                    <th className="px-6 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-150">
+                  {sortedDraftStartups.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-16 text-neutral-400 font-mono">
+                        No applications currently in progress.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedDraftStartups.map(s => (
+                      <tr
+                        key={s.id}
+                        onClick={() => setSelectedStartup(s)}
+                        className="hover:bg-neutral-50/50 cursor-pointer group text-left"
+                      >
+                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline">
+                          {s.company_name || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
+                        </td>
+                        <td className="px-6 py-3 text-neutral-600">
+                          <div>{s.submitter_name || '—'}</div>
+                          <div className="text-neutral-400">{s.submitter_email || ''}</div>
+                        </td>
+                        <td className="px-6 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-20 bg-neutral-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-neutral-900 rounded-full"
+                                style={{ width: `${Math.round((s.last_completed_step / 6) * 100)}%` }}
+                              />
+                            </div>
+                            <span className="font-mono text-neutral-500">{s.last_completed_step}/6</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 text-neutral-600">{new Date(s.updated_at).toLocaleString()}</td>
+                        <td className="px-6 py-3 text-right">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedStartup(s); }}
+                            className="text-neutral-500 hover:text-neutral-900 font-semibold cursor-pointer"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : activeTab === 'logs' ? (
           /* AUDIT LOG RECORDS TAB */
@@ -2024,9 +2131,9 @@ export default function AdminCRM() {
                   <button
                     onClick={() => {
                       const todayStr = new Date().toISOString().split('T')[0];
-                      generateCSV(startups, `startups_${todayStr}.csv`);
+                      generateCSV(reviewableStartups, `startups_${todayStr}.csv`);
                     }}
-                    disabled={isExporting || startups.length === 0}
+                    disabled={isExporting || reviewableStartups.length === 0}
                     className="w-full p-3.5 border border-neutral-200 hover:border-neutral-400 disabled:opacity-40 disabled:hover:border-neutral-200 rounded-lg transition-all flex items-start gap-3 text-left cursor-pointer group bg-neutral-50/30 hover:bg-white"
                   >
                     <div className="p-2 bg-neutral-100 rounded-md group-hover:bg-neutral-900 group-hover:text-white transition-colors shrink-0">
@@ -2035,7 +2142,7 @@ export default function AdminCRM() {
                     <div>
                       <div className="font-semibold text-xs text-neutral-900">All Startups</div>
                       <div className="text-[10px] text-neutral-500 mt-0.5">
-                        Download all {startups.length} startup records in the CRM database.
+                        Download all {reviewableStartups.length} submitted startup records in the CRM database (excludes in-progress drafts).
                       </div>
                     </div>
                   </button>
@@ -2064,7 +2171,7 @@ export default function AdminCRM() {
                   <button
                     onClick={() => {
                       const todayStr = new Date().toISOString().split('T')[0];
-                      const selectedStartups = startups.filter(s => selectedStartupIds.includes(s.id));
+                      const selectedStartups = reviewableStartups.filter(s => selectedStartupIds.includes(s.id));
                       generateCSV(selectedStartups, `selected_startups_${todayStr}.csv`);
                     }}
                     disabled={isExporting || selectedStartupIds.length === 0}

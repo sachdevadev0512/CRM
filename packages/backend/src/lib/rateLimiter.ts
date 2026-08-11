@@ -7,6 +7,10 @@ type RateLimitStore = Map<string, { count: number; resetAt: number }>;
 export const adminInviteLimiter: RateLimitStore = new Map();
 export const turnstileLimiter: RateLimitStore = new Map();
 export const authLimiter: RateLimitStore = new Map();
+// Separate IP-keyed and email-keyed stores for the resume-by-OTP flow, so a burst from one
+// IP can't exhaust another applicant's email budget and vice versa.
+export const otpIpLimiter: RateLimitStore = new Map();
+export const otpEmailLimiter: RateLimitStore = new Map();
 
 export function checkRateLimit(
   store: RateLimitStore,
@@ -38,6 +42,10 @@ export function checkRateLimit(
 }
 
 export function getClientIp(req: Request): string {
-  const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
-  return rawIp.split(',')[0].trim();
+  // `req.ip` is trust-proxy-aware: server.ts sets `app.set('trust proxy', 1)` for exactly one
+  // reverse-proxy hop, so Express already picks the correct X-Forwarded-For entry (the address
+  // seen by that one trusted proxy) rather than the leftmost, client-suppliable one. Hand-parsing
+  // the raw header ourselves (the old approach) let any caller spoof a fresh "IP" per request via
+  // `X-Forwarded-For: <anything>, <real-client-ip>` and bypass every rate limit in this file.
+  return req.ip || req.socket.remoteAddress || 'unknown';
 }

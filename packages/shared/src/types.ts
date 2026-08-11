@@ -13,28 +13,69 @@ export type PipelineStatus =
 
 export interface Startup {
   id: string;
-  company_name: string;
+  company_name: string | null;
   website: string | null;
-  one_line_pitch: string;
-  description: string;
-  hq_location: string;
-  sector: string;
-  founder_name: string;
-  founder_email: string;
+  one_line_pitch: string | null;
+  description: string | null;
+  hq_location: string | null;
+  sector: string | null;
+  founder_name: string | null;
+  founder_email: string | null;
   founder_linkedin: string | null;
-  team_size: number;
-  team_background: string;
-  stage: string;
+  team_size: number | null;
+  team_background: string | null;
+  stage: string | null;
   funding_raised: number;
-  target_raise: number;
-  traction: string;
+  target_raise: number | null;
+  traction: string | null;
   pitch_deck_path: string;
-  demo_video?: string;
-  status: PipelineStatus;
+  demo_video?: string | null;
+  status: PipelineStatus | 'In Progress';
   currency: string;
   revenue_status: string;
   revenue_generated_fy25?: number | null;
   current_financial_year_revenue?: number | null;
+
+  // Step 1: About You (the submitter -- may not be the founder)
+  submitter_name?: string | null;
+  submitter_phone?: string | null;
+  submitter_email?: string | null;
+  submitter_role?: string | null;
+  referral_source?: string | null;
+
+  // Step 2: Startup Basics
+  founder_phone?: string | null;
+  company_linkedin?: string | null;
+  sector_other?: string | null;
+
+  // Step 3: Stage & Funding
+  raised_before?: boolean | null;
+  previous_round_amount?: number | null;
+  previous_round_valuation?: number | null;
+  previous_round_date?: string | null;
+  current_valuation?: number | null;
+
+  // Step 4: The Business (structured, replaces the old description/traction/team_background blobs)
+  problem_statement?: string | null;
+  proposed_solution?: string | null;
+  target_audience?: string | null;
+  revenue_model?: string | null;
+
+  // Step 5: Traction & Financials
+  current_customers?: number | null;
+  monthly_burn?: number | null;
+  revenue_fy_2425?: number | null;
+  revenue_fy_2526?: number | null;
+  revenue_fy_2627?: number | null;
+
+  // Step 6: Pitch Deck & Declaration
+  pitch_deck_link?: string | null;
+  declaration_accepted: boolean;
+
+  // Draft / multi-step progress bookkeeping (draft_token is server-only, never sent to the admin UI)
+  last_completed_step: number;
+  submitted_at?: string | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -78,25 +119,92 @@ export interface AuditLog {
   created_at: string;
 }
 
-export interface ApplicationFormData {
-  company_name: string;
-  website: string;
-  one_line_pitch: string;
-  description: string;
-  hq_location: string;
-  sector: string;
-  founder_name: string;
-  founder_email: string;
-  founder_linkedin: string;
-  team_size: number;
-  team_background: string;
-  stage: string;
-  funding_raised: number;
-  target_raise: number;
-  traction: string;
-  demo_video?: string;
-  currency: string;
-  revenue_status: string;
-  revenue_generated_fy25?: string | number;
-  current_financial_year_revenue?: string | number;
+/**
+ * Field set collected across the 6-step public application form. Every field is
+ * optional here because each step submits only the slice it owns -- the row is
+ * built up incrementally across calls to POST /api/public/application/step.
+ * Required-ness per step is enforced client-side (step validation) and
+ * server-side (step 6 / final-submit guard), not by this type.
+ */
+export interface ApplicationStepData {
+  // Step 1: About You (the submitter -- may not be the founder)
+  referral_source?: string;
+  submitter_role?: string;
+  submitter_name?: string;
+  submitter_phone?: string;
+  submitter_email?: string;
+
+  // Step 2: Startup Basics
+  company_name?: string;
+  founder_name?: string;
+  founder_phone?: string;
+  founder_email?: string;
+  hq_location?: string;
+  website?: string;
+  company_linkedin?: string;
+  founder_linkedin?: string;
+  sector?: string;
+  sector_other?: string;
+  one_line_pitch?: string;
+
+  // Step 3: Stage & Funding
+  stage?: string;
+  target_raise?: number;
+  currency?: string;
+  raised_before?: boolean;
+  previous_round_amount?: number | null;
+  previous_round_valuation?: number | null;
+  previous_round_date?: string;
+  current_valuation?: number;
+
+  // Step 4: The Business
+  problem_statement?: string;
+  proposed_solution?: string;
+  target_audience?: string;
+  revenue_model?: string;
+
+  // Step 5: Traction & Financials
+  current_customers?: number;
+  monthly_burn?: number;
+  revenue_fy_2425?: number;
+  revenue_fy_2526?: number;
+  revenue_fy_2627?: number;
+
+  // Step 6: Pitch Deck & Declaration
+  pitch_deck_link?: string;
+  demo_video?: string | null; // "Additional Material" link (data room / video / one-pager)
+  declaration_accepted?: boolean;
+}
+
+export interface ApplicationStepRequest {
+  id?: string;
+  draftToken?: string;
+  step: number; // 1-6
+  data: ApplicationStepData;
+  turnstileToken?: string; // required + verified only when step === 6
+}
+
+export interface ApplicationStepResponse {
+  success: boolean;
+  id?: string;
+  draftToken?: string;
+  error?: string;
+  // Set on a step-1 (first save) rejection so the client can react specifically instead of
+  // just showing the generic error text -- one application per email is enforced here.
+  existingDraftFound?: boolean; // an 'In Progress' application already exists for this email
+  alreadySubmitted?: boolean; // a fully-submitted application already exists for this email
+}
+
+export interface RequestResumeOtpResponse {
+  success: boolean;
+  error?: string;
+}
+
+export interface VerifyResumeOtpResponse {
+  success: boolean;
+  error?: string;
+  id?: string;
+  draftToken?: string;
+  currentStep?: number; // last_completed_step
+  data?: ApplicationStepData;
 }
