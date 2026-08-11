@@ -15,12 +15,14 @@ const emptyFormFields = {
   referral_source: '',
   submitter_role: '',
   submitter_name: '',
+  submitter_phone_code: 'IN', // ISO 3166-1 alpha-2 (not the dial string -- see dialForIso2)
   submitter_phone: '',
   submitter_email: '',
 
   // Step 2: Startup Basics
   company_name: '',
   founder_name: '',
+  founder_phone_code: 'IN',
   founder_phone: '',
   founder_email: '',
   registration_type: 'India',
@@ -75,6 +77,140 @@ const STEPS = [
 
 function countWords(text: string): number {
   return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+}
+
+// Converts an ISO 3166-1 alpha-2 code to its flag emoji via Unicode regional indicator symbols
+// (e.g. "IN" -> 🇮 + 🇳 -> 🇮🇳), so the country list below only needs to carry the code, not a
+// hand-picked emoji per entry.
+function isoToFlagEmoji(iso2: string): string {
+  return [...iso2.toUpperCase()].map((c) => String.fromCodePoint(127397 + c.charCodeAt(0))).join('');
+}
+
+// Dial codes for phone country-code selectors. Applicants can be founders, bankers, mentors, etc.
+// based anywhere, so the phone fields aren't India-only -- India is listed first as the default
+// (Middha Ventures' home market), the rest are alphabetical by country name.
+const COUNTRY_CODES: { name: string; iso2: string; dial: string }[] = [
+  { name: 'India', iso2: 'IN', dial: '+91' },
+  { name: 'Afghanistan', iso2: 'AF', dial: '+93' },
+  { name: 'Albania', iso2: 'AL', dial: '+355' },
+  { name: 'Algeria', iso2: 'DZ', dial: '+213' },
+  { name: 'Argentina', iso2: 'AR', dial: '+54' },
+  { name: 'Armenia', iso2: 'AM', dial: '+374' },
+  { name: 'Australia', iso2: 'AU', dial: '+61' },
+  { name: 'Austria', iso2: 'AT', dial: '+43' },
+  { name: 'Azerbaijan', iso2: 'AZ', dial: '+994' },
+  { name: 'Bahrain', iso2: 'BH', dial: '+973' },
+  { name: 'Bangladesh', iso2: 'BD', dial: '+880' },
+  { name: 'Belarus', iso2: 'BY', dial: '+375' },
+  { name: 'Belgium', iso2: 'BE', dial: '+32' },
+  { name: 'Bhutan', iso2: 'BT', dial: '+975' },
+  { name: 'Bolivia', iso2: 'BO', dial: '+591' },
+  { name: 'Bosnia and Herzegovina', iso2: 'BA', dial: '+387' },
+  { name: 'Brazil', iso2: 'BR', dial: '+55' },
+  { name: 'Brunei', iso2: 'BN', dial: '+673' },
+  { name: 'Bulgaria', iso2: 'BG', dial: '+359' },
+  { name: 'Cambodia', iso2: 'KH', dial: '+855' },
+  { name: 'Cameroon', iso2: 'CM', dial: '+237' },
+  { name: 'Canada', iso2: 'CA', dial: '+1' },
+  { name: 'Chile', iso2: 'CL', dial: '+56' },
+  { name: 'China', iso2: 'CN', dial: '+86' },
+  { name: 'Colombia', iso2: 'CO', dial: '+57' },
+  { name: 'Costa Rica', iso2: 'CR', dial: '+506' },
+  { name: 'Croatia', iso2: 'HR', dial: '+385' },
+  { name: 'Cyprus', iso2: 'CY', dial: '+357' },
+  { name: 'Czech Republic', iso2: 'CZ', dial: '+420' },
+  { name: 'Denmark', iso2: 'DK', dial: '+45' },
+  { name: 'Ecuador', iso2: 'EC', dial: '+593' },
+  { name: 'Egypt', iso2: 'EG', dial: '+20' },
+  { name: 'Estonia', iso2: 'EE', dial: '+372' },
+  { name: 'Ethiopia', iso2: 'ET', dial: '+251' },
+  { name: 'Finland', iso2: 'FI', dial: '+358' },
+  { name: 'France', iso2: 'FR', dial: '+33' },
+  { name: 'Georgia', iso2: 'GE', dial: '+995' },
+  { name: 'Germany', iso2: 'DE', dial: '+49' },
+  { name: 'Ghana', iso2: 'GH', dial: '+233' },
+  { name: 'Greece', iso2: 'GR', dial: '+30' },
+  { name: 'Hong Kong', iso2: 'HK', dial: '+852' },
+  { name: 'Hungary', iso2: 'HU', dial: '+36' },
+  { name: 'Iceland', iso2: 'IS', dial: '+354' },
+  { name: 'Indonesia', iso2: 'ID', dial: '+62' },
+  { name: 'Iran', iso2: 'IR', dial: '+98' },
+  { name: 'Iraq', iso2: 'IQ', dial: '+964' },
+  { name: 'Ireland', iso2: 'IE', dial: '+353' },
+  { name: 'Israel', iso2: 'IL', dial: '+972' },
+  { name: 'Italy', iso2: 'IT', dial: '+39' },
+  { name: 'Japan', iso2: 'JP', dial: '+81' },
+  { name: 'Jordan', iso2: 'JO', dial: '+962' },
+  { name: 'Kazakhstan', iso2: 'KZ', dial: '+7' },
+  { name: 'Kenya', iso2: 'KE', dial: '+254' },
+  { name: 'Kuwait', iso2: 'KW', dial: '+965' },
+  { name: 'Kyrgyzstan', iso2: 'KG', dial: '+996' },
+  { name: 'Laos', iso2: 'LA', dial: '+856' },
+  { name: 'Latvia', iso2: 'LV', dial: '+371' },
+  { name: 'Lebanon', iso2: 'LB', dial: '+961' },
+  { name: 'Lithuania', iso2: 'LT', dial: '+370' },
+  { name: 'Luxembourg', iso2: 'LU', dial: '+352' },
+  { name: 'Macau', iso2: 'MO', dial: '+853' },
+  { name: 'Malaysia', iso2: 'MY', dial: '+60' },
+  { name: 'Maldives', iso2: 'MV', dial: '+960' },
+  { name: 'Malta', iso2: 'MT', dial: '+356' },
+  { name: 'Mauritius', iso2: 'MU', dial: '+230' },
+  { name: 'Mexico', iso2: 'MX', dial: '+52' },
+  { name: 'Moldova', iso2: 'MD', dial: '+373' },
+  { name: 'Mongolia', iso2: 'MN', dial: '+976' },
+  { name: 'Morocco', iso2: 'MA', dial: '+212' },
+  { name: 'Myanmar', iso2: 'MM', dial: '+95' },
+  { name: 'Nepal', iso2: 'NP', dial: '+977' },
+  { name: 'Netherlands', iso2: 'NL', dial: '+31' },
+  { name: 'New Zealand', iso2: 'NZ', dial: '+64' },
+  { name: 'Nigeria', iso2: 'NG', dial: '+234' },
+  { name: 'Norway', iso2: 'NO', dial: '+47' },
+  { name: 'Oman', iso2: 'OM', dial: '+968' },
+  { name: 'Pakistan', iso2: 'PK', dial: '+92' },
+  { name: 'Panama', iso2: 'PA', dial: '+507' },
+  { name: 'Peru', iso2: 'PE', dial: '+51' },
+  { name: 'Philippines', iso2: 'PH', dial: '+63' },
+  { name: 'Poland', iso2: 'PL', dial: '+48' },
+  { name: 'Portugal', iso2: 'PT', dial: '+351' },
+  { name: 'Qatar', iso2: 'QA', dial: '+974' },
+  { name: 'Romania', iso2: 'RO', dial: '+40' },
+  { name: 'Russia', iso2: 'RU', dial: '+7' },
+  { name: 'Rwanda', iso2: 'RW', dial: '+250' },
+  { name: 'Saudi Arabia', iso2: 'SA', dial: '+966' },
+  { name: 'Serbia', iso2: 'RS', dial: '+381' },
+  { name: 'Singapore', iso2: 'SG', dial: '+65' },
+  { name: 'Slovakia', iso2: 'SK', dial: '+421' },
+  { name: 'Slovenia', iso2: 'SI', dial: '+386' },
+  { name: 'South Africa', iso2: 'ZA', dial: '+27' },
+  { name: 'South Korea', iso2: 'KR', dial: '+82' },
+  { name: 'Spain', iso2: 'ES', dial: '+34' },
+  { name: 'Sri Lanka', iso2: 'LK', dial: '+94' },
+  { name: 'Sweden', iso2: 'SE', dial: '+46' },
+  { name: 'Switzerland', iso2: 'CH', dial: '+41' },
+  { name: 'Taiwan', iso2: 'TW', dial: '+886' },
+  { name: 'Tanzania', iso2: 'TZ', dial: '+255' },
+  { name: 'Thailand', iso2: 'TH', dial: '+66' },
+  { name: 'Turkey', iso2: 'TR', dial: '+90' },
+  { name: 'Uganda', iso2: 'UG', dial: '+256' },
+  { name: 'Ukraine', iso2: 'UA', dial: '+380' },
+  { name: 'United Arab Emirates', iso2: 'AE', dial: '+971' },
+  { name: 'United Kingdom', iso2: 'GB', dial: '+44' },
+  { name: 'United States', iso2: 'US', dial: '+1' },
+  { name: 'Uruguay', iso2: 'UY', dial: '+598' },
+  { name: 'Uzbekistan', iso2: 'UZ', dial: '+998' },
+  { name: 'Vietnam', iso2: 'VN', dial: '+84' },
+  { name: 'Yemen', iso2: 'YE', dial: '+967' },
+];
+
+// Phone country-code state is keyed by ISO2 (unique per country), not the dial string directly --
+// several countries legitimately share a dial code (Canada/United States both "+1", Kazakhstan/
+// Russia both "+7"), and a <select>'s <option value> must be unique per option or the browser
+// resolves a shared value to whichever matching option comes first in DOM order, silently
+// snapping the visible selection to the wrong country after every re-render. The dial string
+// itself is only ever resolved right when it's needed (validating or combining into the stored
+// phone string).
+function dialForIso2(iso2: string): string {
+  return COUNTRY_CODES.find((c) => c.iso2 === iso2)?.dial || '+91';
 }
 
 // Guards against an out-of-range step index ever reaching `STEPS[currentStep]` -- both
@@ -360,13 +496,25 @@ export default function FormPortal() {
     }
   };
 
-  const WordCount = ({ text, max }: { text: string; max: number }) => (
-    <div className="flex justify-end text-[10px] font-mono text-neutral-400">
-      <span>{countWords(text)} / {max} words</span>
-    </div>
-  );
+  const WordCount = ({ text, max }: { text: string; max: number }) => {
+    const count = countWords(text);
+    return (
+      <div className={`flex justify-end text-[10px] font-mono ${count > max ? 'text-red-500 font-semibold' : 'text-neutral-400'}`}>
+        <span>{count} / {max} words</span>
+      </div>
+    );
+  };
 
-  const isValidIndianMobile = (raw: string) => /^(?:\+91|91|0)?[6-9]\d{9}$/.test(raw.trim().replace(/[\s-]/g, ''));
+  // India gets its well-understood 10-digit-starting-6-9 check; every other country code gets a
+  // lenient generic length check (E.164 caps the whole number, country code included, at 15
+  // digits, so the national number alone realistically runs 4-14 digits) -- validating every
+  // country's actual numbering plan precisely would need a dedicated library, which is overkill
+  // here versus just sanity-checking length.
+  const isValidPhoneNumber = (iso2: string, raw: string) => {
+    const digits = raw.trim().replace(/\D/g, '');
+    if (iso2 === 'IN') return /^[6-9]\d{9}$/.test(digits);
+    return digits.length >= 4 && digits.length <= 14;
+  };
 
   const validateStep = (stepIndex: number): Record<string, string> => {
     const newErrors: Record<string, string> = {};
@@ -377,8 +525,10 @@ export default function FormPortal() {
       if (!formFields.submitter_name.trim()) newErrors.submitter_name = 'Your name is required.';
       if (!formFields.submitter_phone.trim()) {
         newErrors.submitter_phone = 'Your phone number is required.';
-      } else if (!isValidIndianMobile(formFields.submitter_phone)) {
-        newErrors.submitter_phone = 'Enter a valid 10-digit Indian mobile number.';
+      } else if (!isValidPhoneNumber(formFields.submitter_phone_code, formFields.submitter_phone)) {
+        newErrors.submitter_phone = formFields.submitter_phone_code === 'IN'
+          ? 'Enter a valid 10-digit Indian mobile number.'
+          : 'Enter a valid phone number for the selected country.';
       }
       if (!formFields.submitter_email.trim()) {
         newErrors.submitter_email = 'Your email address is required.';
@@ -392,8 +542,10 @@ export default function FormPortal() {
       if (!formFields.founder_name.trim()) newErrors.founder_name = "Founder's name is required.";
       if (!formFields.founder_phone.trim()) {
         newErrors.founder_phone = "Startup's phone number is required.";
-      } else if (!isValidIndianMobile(formFields.founder_phone)) {
-        newErrors.founder_phone = 'Enter a valid 10-digit Indian mobile number.';
+      } else if (!isValidPhoneNumber(formFields.founder_phone_code, formFields.founder_phone)) {
+        newErrors.founder_phone = formFields.founder_phone_code === 'IN'
+          ? 'Enter a valid 10-digit Indian mobile number.'
+          : 'Enter a valid phone number for the selected country.';
       }
       if (!formFields.founder_email.trim()) {
         newErrors.founder_email = "Startup's email address is required.";
@@ -423,7 +575,11 @@ export default function FormPortal() {
         newErrors.sector_other = 'Please specify your sector.';
       }
 
-      if (!formFields.one_line_pitch.trim()) newErrors.one_line_pitch = 'One-liner is required.';
+      if (!formFields.one_line_pitch.trim()) {
+        newErrors.one_line_pitch = 'One-liner is required.';
+      } else if (countWords(formFields.one_line_pitch) > 100) {
+        newErrors.one_line_pitch = `Keep it to 100 words or fewer (currently ${countWords(formFields.one_line_pitch)}).`;
+      }
     }
 
     if (stepIndex === 2) {
@@ -434,18 +590,37 @@ export default function FormPortal() {
       if (!formFields.raised_before) {
         newErrors.raised_before = 'Please let us know if you have raised a previous round.';
       } else if (formFields.raised_before === 'Yes') {
-        if (!formFields.previous_round_amount.trim()) newErrors.previous_round_amount = 'Amount raised is required.';
-        if (!formFields.previous_round_valuation.trim()) newErrors.previous_round_valuation = 'Valuation is required.';
+        if (!formFields.previous_round_amount.trim() || Number(formFields.previous_round_amount) <= 0) {
+          newErrors.previous_round_amount = 'Amount raised is required.';
+        }
+        if (!formFields.previous_round_valuation.trim()) {
+          newErrors.previous_round_valuation = 'Valuation is required.';
+        } else if (
+          Number(formFields.previous_round_amount) > 0 &&
+          Number(formFields.previous_round_valuation) <= Number(formFields.previous_round_amount)
+        ) {
+          newErrors.previous_round_valuation = 'The valuation must be greater than the amount raised in that round.';
+        }
         if (!formFields.previous_round_date.trim()) newErrors.previous_round_date = 'Month & year is required.';
       }
       if (!formFields.current_valuation.trim()) newErrors.current_valuation = 'Current valuation is required.';
     }
 
     if (stepIndex === 3) {
-      if (!formFields.problem_statement.trim()) newErrors.problem_statement = 'Problem statement is required.';
-      if (!formFields.proposed_solution.trim()) newErrors.proposed_solution = 'Proposed solution is required.';
-      if (!formFields.target_audience.trim()) newErrors.target_audience = 'Target audience is required.';
-      if (!formFields.revenue_model.trim()) newErrors.revenue_model = 'Revenue model is required.';
+      const wordLimited: [keyof FormFields, string, number][] = [
+        ['problem_statement', 'Problem statement', 250],
+        ['proposed_solution', 'Proposed solution', 500],
+        ['target_audience', 'Target audience', 100],
+        ['revenue_model', 'Revenue model', 500],
+      ];
+      for (const [field, label, max] of wordLimited) {
+        const value = String(formFields[field] ?? '');
+        if (!value.trim()) {
+          newErrors[field] = `${label} is required.`;
+        } else if (countWords(value) > max) {
+          newErrors[field] = `Keep it to ${max} words or fewer (currently ${countWords(value)}).`;
+        }
+      }
     }
 
     if (stepIndex === 4) {
@@ -473,6 +648,10 @@ export default function FormPortal() {
     return newErrors;
   };
 
+  // Stored (and sent to the backend) as one combined string, e.g. "+91 9876543210" -- there's no
+  // separate DB column for the dial code, so this is the one place it gets folded in.
+  const combinePhone = (iso2: string, number: string) => `${dialForIso2(iso2)} ${number.trim()}`.trim();
+
   const buildStepPayload = (stepNumber: number): ApplicationStepData => {
     switch (stepNumber) {
       case 1:
@@ -480,14 +659,14 @@ export default function FormPortal() {
           referral_source: formFields.referral_source,
           submitter_role: formFields.submitter_role,
           submitter_name: formFields.submitter_name.trim(),
-          submitter_phone: formFields.submitter_phone.trim(),
+          submitter_phone: combinePhone(formFields.submitter_phone_code, formFields.submitter_phone),
           submitter_email: formFields.submitter_email.trim(),
         };
       case 2:
         return {
           company_name: formFields.company_name.trim(),
           founder_name: formFields.founder_name.trim(),
-          founder_phone: formFields.founder_phone.trim(),
+          founder_phone: combinePhone(formFields.founder_phone_code, formFields.founder_phone),
           founder_email: formFields.founder_email.trim(),
           hq_location: formFields.registration_type === 'India' ? formFields.india_city : formFields.outside_location.trim(),
           website: formFields.website.trim(),
@@ -585,17 +764,35 @@ export default function FormPortal() {
   // Reverses buildStepPayload: takes what the server has stored for a draft and reconstructs the
   // wizard's own field shape, including the registration_type/india_city/outside_location split
   // that hq_location gets collapsed into on save.
+  // Reverses combinePhone: splits a stored "+91 9876543210"-style string back into the ISO2
+  // country code (what the <select>'s state actually holds) and local number, by matching the
+  // dial prefix against COUNTRY_CODES (longest dial first, so a country whose dial is itself a
+  // prefix of another, longer dial in the list can never wrongly steal the match -- verified no
+  // such collision exists in the current list, but sorting defensively costs nothing). Falls back
+  // to India/empty if nothing matches (covers an unfilled phone and pre-this-feature legacy rows
+  // that never had a "+"-prefixed value to begin with).
+  const splitPhone = (combined: unknown): { code: string; number: string } => {
+    const raw = combined === null || combined === undefined ? '' : String(combined).trim();
+    if (!raw) return { code: 'IN', number: '' };
+    const match = [...COUNTRY_CODES].sort((a, b) => b.dial.length - a.dial.length).find((c) => raw.startsWith(c.dial));
+    return match ? { code: match.iso2, number: raw.slice(match.dial.length).trim() } : { code: 'IN', number: raw };
+  };
+
   const mapResumedDataToFormFields = (data: ApplicationStepData): Partial<FormFields> => {
     const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+    const submitterPhone = splitPhone(data.submitter_phone);
+    const founderPhone = splitPhone(data.founder_phone);
     const mapped: Partial<FormFields> = {
       referral_source: str(data.referral_source),
       submitter_role: str(data.submitter_role),
       submitter_name: str(data.submitter_name),
-      submitter_phone: str(data.submitter_phone),
+      submitter_phone_code: submitterPhone.code,
+      submitter_phone: submitterPhone.number,
       submitter_email: str(data.submitter_email),
       company_name: str(data.company_name),
       founder_name: str(data.founder_name),
-      founder_phone: str(data.founder_phone),
+      founder_phone_code: founderPhone.code,
+      founder_phone: founderPhone.number,
       founder_email: str(data.founder_email),
       website: str(data.website),
       company_linkedin: str(data.company_linkedin),
@@ -605,7 +802,10 @@ export default function FormPortal() {
       one_line_pitch: str(data.one_line_pitch),
       stage: str(data.stage),
       target_raise: str(data.target_raise),
-      currency: data.currency ? String(data.currency) : 'INR',
+      // Falls back to INR for anything the <select> no longer offers (e.g. a draft saved back
+      // when EUR was still an option) -- otherwise the controlled <select> would silently show no
+      // selection at all while formFields.currency kept the stale, now-unpickable value.
+      currency: ['INR', 'USD'].includes(String(data.currency)) ? String(data.currency) : 'INR',
       raised_before: data.raised_before === true ? 'Yes' : data.raised_before === false ? 'No' : '',
       previous_round_amount: str(data.previous_round_amount),
       previous_round_valuation: str(data.previous_round_valuation),
@@ -1096,15 +1296,30 @@ export default function FormPortal() {
                   <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="submitter_phone">
                     Phone Number <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    id="submitter_phone"
-                    name="submitter_phone"
-                    placeholder="9876543210"
-                    value={formFields.submitter_phone}
-                    onChange={handleInputChange}
-                    className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.submitter_phone ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
-                  />
+                  <div className="grid grid-cols-[auto_1fr] gap-2">
+                    <select
+                      id="submitter_phone_code"
+                      name="submitter_phone_code"
+                      value={formFields.submitter_phone_code}
+                      onChange={handleInputChange}
+                      className="px-2 py-2 text-sm bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none cursor-pointer"
+                    >
+                      {COUNTRY_CODES.map((c) => (
+                        <option key={c.iso2} value={c.iso2}>
+                          {isoToFlagEmoji(c.iso2)} {c.dial}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      id="submitter_phone"
+                      name="submitter_phone"
+                      placeholder="9876543210"
+                      value={formFields.submitter_phone}
+                      onChange={handleInputChange}
+                      className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.submitter_phone ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
+                    />
+                  </div>
                   {errors.submitter_phone && <span className="text-xs text-red-500">{errors.submitter_phone}</span>}
                 </div>
 
@@ -1168,15 +1383,30 @@ export default function FormPortal() {
                       <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="founder_phone">
                         Phone Number <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="text"
-                        id="founder_phone"
-                        name="founder_phone"
-                        placeholder="9876543210"
-                        value={formFields.founder_phone}
-                        onChange={handleInputChange}
-                        className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.founder_phone ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
-                      />
+                      <div className="grid grid-cols-[auto_1fr] gap-2">
+                        <select
+                          id="founder_phone_code"
+                          name="founder_phone_code"
+                          value={formFields.founder_phone_code}
+                          onChange={handleInputChange}
+                          className="px-2 py-2 text-sm bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none cursor-pointer"
+                        >
+                          {COUNTRY_CODES.map((c) => (
+                            <option key={c.iso2} value={c.iso2}>
+                              {isoToFlagEmoji(c.iso2)} {c.dial}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          id="founder_phone"
+                          name="founder_phone"
+                          placeholder="9876543210"
+                          value={formFields.founder_phone}
+                          onChange={handleInputChange}
+                          className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.founder_phone ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
+                        />
+                      </div>
                       {errors.founder_phone && <span className="text-xs text-red-500">{errors.founder_phone}</span>}
                     </div>
 
@@ -1439,7 +1669,6 @@ export default function FormPortal() {
                   >
                     <option value="INR">Indian Rupee (INR)</option>
                     <option value="USD">US Dollar (USD)</option>
-                    <option value="EUR">Euro (EUR)</option>
                   </select>
                   <p className="text-[10px] text-neutral-400">Applies to every amount on this and the next step, for consistency.</p>
                 </div>
@@ -1488,6 +1717,14 @@ export default function FormPortal() {
                     />
                   </div>
                   {errors.current_valuation && <span className="text-xs text-red-500">{errors.current_valuation}</span>}
+                  {!errors.current_valuation &&
+                    Number(formFields.current_valuation) > 0 &&
+                    Number(formFields.target_raise) > 0 &&
+                    Number(formFields.current_valuation) < Number(formFields.target_raise) && (
+                      <span className="text-xs text-amber-600">
+                        ⚠ Current valuation is lower than the funding ask -- double-check this is correct.
+                      </span>
+                    )}
                 </div>
 
                 <div className="space-y-3 md:col-span-2 border-t border-neutral-100 pt-4" id="raised_before_field">
@@ -1743,7 +1980,8 @@ export default function FormPortal() {
               <>
                 <div className="space-y-1.5 md:col-span-2" id="pitch_deck_link_field">
                   <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="pitch_deck_link">
-                    Pitch Deck Link <span className="text-red-500">*</span>
+                    Pitch Deck Link <span className="text-red-500">*</span>{' '}
+                    <span className="text-neutral-400 font-normal normal-case tracking-normal">(Please give view access to all)</span>
                   </label>
                   <input
                     type="text"
@@ -1754,7 +1992,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.pitch_deck_link ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none`}
                   />
-                  <p className="text-[10px] text-neutral-400">Share a link to your pitch deck (Google Drive, Dropbox, Notion, etc. — make sure it's viewable by anyone with the link).</p>
+                  <p className="text-[10px] text-neutral-400">Share a link to your pitch deck (Google Drive, Dropbox, Notion, etc.) with sharing set to "Anyone with the link can view."</p>
                   {errors.pitch_deck_link && <span className="text-xs text-red-500">{errors.pitch_deck_link}</span>}
                 </div>
 

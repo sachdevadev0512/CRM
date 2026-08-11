@@ -134,7 +134,6 @@ export default function StartupDetail({
   // decision, every amount in the CRM displays as INR for consistency, rather than switching
   // symbols based on whichever currency an applicant happened to select on the form.
   const currencySymbol = '₹';
-  const currencyCode = startup.currency || 'INR';
   const isDraft = startup.status === 'In Progress';
 
   return (
@@ -352,7 +351,7 @@ export default function StartupDetail({
                     TARGET RAISE
                   </span>
                   <span className="text-base font-semibold text-neutral-900 font-mono">
-                    {currencySymbol}{Number(startup.target_raise || 0).toLocaleString()} {currencyCode}
+                    {currencySymbol}{Number(startup.target_raise || 0).toLocaleString()}
                   </span>
                 </div>
                 <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
@@ -360,7 +359,7 @@ export default function StartupDetail({
                     PRIOR CAPITAL
                   </span>
                   <span className="text-base font-semibold text-neutral-900 font-mono">
-                    {startup.funding_raised ? `${currencySymbol}${Number(startup.funding_raised).toLocaleString()} ${currencyCode}` : 'Nil'}
+                    {startup.funding_raised ? `${currencySymbol}${Number(startup.funding_raised).toLocaleString()}` : 'Nil'}
                   </span>
                 </div>
                 <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
@@ -377,7 +376,7 @@ export default function StartupDetail({
                       CURRENT VALUATION
                     </span>
                     <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {currencySymbol}{Number(startup.current_valuation).toLocaleString()} {currencyCode}
+                      {currencySymbol}{Number(startup.current_valuation).toLocaleString()}
                     </span>
                   </div>
                 )}
@@ -389,13 +388,13 @@ export default function StartupDetail({
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND RAISED</span>
                     <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.previous_round_amount != null ? `${currencySymbol}${Number(startup.previous_round_amount).toLocaleString()} ${currencyCode}` : '—'}
+                      {startup.previous_round_amount != null ? `${currencySymbol}${Number(startup.previous_round_amount).toLocaleString()}` : '—'}
                     </span>
                   </div>
                   <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
                     <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND VALUATION</span>
                     <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.previous_round_valuation != null ? `${currencySymbol}${Number(startup.previous_round_valuation).toLocaleString()} ${currencyCode}` : '—'}
+                      {startup.previous_round_valuation != null ? `${currencySymbol}${Number(startup.previous_round_valuation).toLocaleString()}` : '—'}
                     </span>
                   </div>
                   <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
@@ -425,7 +424,7 @@ export default function StartupDetail({
                     </span>
                     <span className="text-base font-semibold text-neutral-900 font-mono">
                       {startup.revenue_status === 'Revenue Generating' && startup.revenue_generated_fy25
-                        ? `${currencySymbol}${Number(startup.revenue_generated_fy25).toLocaleString()} ${currencyCode}`
+                        ? `${currencySymbol}${Number(startup.revenue_generated_fy25).toLocaleString()}`
                         : 'Pre-Revenue'}
                     </span>
                   </div>
@@ -435,8 +434,8 @@ export default function StartupDetail({
                     </span>
                     <span className="text-base font-semibold text-neutral-900 font-mono">
                       {startup.current_financial_year_revenue 
-                        ? `${currencySymbol}${Number(startup.current_financial_year_revenue).toLocaleString()} ${currencyCode}`
-                        : `${currencySymbol}0 ${currencyCode}`}
+                        ? `${currencySymbol}${Number(startup.current_financial_year_revenue).toLocaleString()}`
+                        : `${currencySymbol}0`}
                     </span>
                   </div>
                 </div>
