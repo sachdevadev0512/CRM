@@ -10,18 +10,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd /var/www/crm
-            git fetch origin abhishek
-            git reset --hard origin/abhishek
-            npm install
-            npm run build
-            pm2 delete crm 2>/dev/null || true
-            pm2 startOrRestart ecosystem.config.cjs --update-env
-            pm2 save
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15"
+
+          # The VPS's SSH port is occasionally unreachable for a single connection
+          # attempt from GitHub's runner IP (firewall/DDoS-mitigation blips on
+          # datacenter IP ranges) even though the server itself is up. Retry with
+          # backoff instead of failing the whole deploy on one dropped TCP dial.
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "::group::SSH deploy attempt $attempt/$max_attempts"
+            if ssh $SSH_OPTS "$VPS_USER@$VPS_HOST" '
+              set -e
+              cd /var/www/crm
+              git fetch origin abhishek
+              git reset --hard origin/abhishek
+              npm install
+              npm run build
+              pm2 delete crm 2>/dev/null || true
+              pm2 startOrRestart ecosystem.config.cjs --update-env
+              pm2 save
+            '; then
+              echo "::endgroup::"
+              echo "Deploy succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::Attempt $attempt/$max_attempts failed"
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Retrying in 20s..."
+              sleep 20
+            fi
+          done
+
+          echo "::error::Deploy failed after $max_attempts attempts — SSH to $VPS_HOST:22 never connected. Check VPS firewall/fail2ban rules for blocked GitHub Actions IP ranges."
+          exit 1

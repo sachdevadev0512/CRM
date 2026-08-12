@@ -175,32 +175,53 @@ function pickResumableFields(row: Record<string, any>): ApplicationStepData {
   return out as ApplicationStepData;
 }
 
-// One-application-per-email pre-check used by the step-1 create branch, both before the INSERT
-// (fast path) and again after a 23505 unique-violation (the actual race-safe enforcement). Always
+type ExistingApplicationResolution =
+  | { kind: 'none' }
+  | { kind: 'silentResume'; id: string; draftToken: string; lastCompletedStep: number }
+  | { kind: 'conflict'; response: { success: false; existingDraftFound?: true; alreadySubmitted?: true; error: string } };
+
+// One-application-per-email check used by the step-1 create branch, both before the INSERT (fast
+// path) and again after a 23505 unique-violation (the actual race-safe enforcement). Always
 // escapes the email before it reaches `.ilike()` -- passing it through raw would let a value like
 // `%` or `%@somecompany.com` match every/many rows instead of the one exact address, turning an
 // ownership check into an information-disclosure oracle.
-async function findExistingApplicationConflict(client: ReturnType<typeof getAdminSupabase>, submitterEmail: string) {
+//
+// A match that never got past step 1 (just name/phone/role/referral -- nothing worth gating
+// behind an email code) resolves as `silentResume`: the caller re-saves into that SAME row
+// instead of blocking, so a second step-1 attempt with the same email (different browser, retry,
+// whatever) just quietly continues -- no OTP, no "you already have one in progress" interruption.
+// Only a match that reached step 2+ is treated as a real conflict requiring OTP-gated resume.
+async function resolveExistingApplication(client: ReturnType<typeof getAdminSupabase>, submitterEmail: string): Promise<ExistingApplicationResolution> {
   const { data: existingRows, error: existingError } = await client
     .from('startups')
-    .select('status')
+    .select('id, draft_token, status, last_completed_step')
     .ilike('submitter_email', escapeIlike(submitterEmail))
     .order('updated_at', { ascending: false })
     .limit(1);
 
-  if (existingError || !existingRows || existingRows.length === 0) return null;
+  if (existingError || !existingRows || existingRows.length === 0) return { kind: 'none' };
 
-  if (existingRows[0].status === 'In Progress') {
+  const existing = existingRows[0];
+  if (existing.status === 'In Progress') {
+    if ((existing.last_completed_step || 0) <= 1) {
+      return { kind: 'silentResume', id: existing.id, draftToken: existing.draft_token, lastCompletedStep: existing.last_completed_step || 0 };
+    }
     return {
-      success: false,
-      existingDraftFound: true,
-      error: 'You already have an application in progress with this email address.',
+      kind: 'conflict',
+      response: {
+        success: false,
+        existingDraftFound: true,
+        error: 'You already have an application in progress with this email address.',
+      },
     };
   }
   return {
-    success: false,
-    alreadySubmitted: true,
-    error: "We've already received an application from this email address. Our team reviews every submission and will reach out if there's a fit.",
+    kind: 'conflict',
+    response: {
+      success: false,
+      alreadySubmitted: true,
+      error: "We've already received an application from this email address. Our team reviews every submission and will reach out if there's a fit.",
+    },
   };
 }
 
@@ -266,8 +287,20 @@ router.post('/application/step', async (req, res) => {
       // is the unique index on lower(submitter_email) added in 14_resume_otp.sql; a race that
       // slips past this pre-check will fail the INSERT below with a 23505 violation instead.
       if (submitterEmail) {
-        const conflict = await findExistingApplicationConflict(adminClientForCreate, submitterEmail);
-        if (conflict) return res.status(409).json(conflict);
+        const resolution = await resolveExistingApplication(adminClientForCreate, submitterEmail);
+        if (resolution.kind === 'conflict') return res.status(409).json(resolution.response);
+        if (resolution.kind === 'silentResume') {
+          const { error: resumeError } = await adminClientForCreate
+            .from('startups')
+            .update({ ...updates, last_completed_step: Math.max(stepNum, resolution.lastCompletedStep) })
+            .eq('id', resolution.id)
+            .eq('status', 'In Progress');
+          if (resumeError) {
+            console.error('Silent step-1 resume update failed:', resumeError);
+            return res.status(500).json({ success: false, error: 'Your progress could not be saved. Please check the fields and try again.' });
+          }
+          return res.json({ success: true, id: resolution.id, draftToken: resolution.draftToken });
+        }
       }
 
       const newId = randomUUID();
@@ -287,10 +320,24 @@ router.post('/application/step', async (req, res) => {
         if (insertError.code === '23505' && insertError.message?.includes('submitter_email')) {
           // Lost the race against a concurrent step-1 request for the same email -- resolve it
           // exactly like the pre-check above would have, now that the winning row is committed.
-          const conflict = submitterEmail
-            ? await findExistingApplicationConflict(adminClientForCreate, submitterEmail)
-            : null;
-          return res.status(409).json(conflict || { success: false, error: 'An application with this email is already on file.' });
+          const resolution = submitterEmail
+            ? await resolveExistingApplication(adminClientForCreate, submitterEmail)
+            : { kind: 'none' as const };
+          if (resolution.kind === 'silentResume') {
+            const { error: resumeError } = await adminClientForCreate
+              .from('startups')
+              .update({ ...updates, last_completed_step: Math.max(stepNum, resolution.lastCompletedStep) })
+              .eq('id', resolution.id)
+              .eq('status', 'In Progress');
+            if (resumeError) {
+              console.error('Silent step-1 resume update failed (post-race):', resumeError);
+              return res.status(500).json({ success: false, error: 'Your progress could not be saved. Please check the fields and try again.' });
+            }
+            return res.json({ success: true, id: resolution.id, draftToken: resolution.draftToken });
+          }
+          return res.status(409).json(
+            resolution.kind === 'conflict' ? resolution.response : { success: false, error: 'An application with this email is already on file.' }
+          );
         }
         if (insertError.message?.includes('already been submitted') || insertError.message?.includes('duplicate')) {
           return res.status(400).json({ success: false, error: insertError.message });

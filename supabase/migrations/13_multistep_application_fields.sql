@@ -115,6 +115,19 @@ ALTER TABLE public.startups ADD CONSTRAINT chk_description_len
 -- others were already written with an `IS NULL OR ...` / nullable-column form) --
 -- left untouched.
 
+-- Each dropped first (IF EXISTS) so this whole file can be re-run safely -- e.g. after a partial
+-- failure elsewhere in the script, or just to be certain everything landed. Without this guard, a
+-- second run fails on the very first ADD CONSTRAINT here with a plain "already exists" error and
+-- aborts before the rest of this statement (or, depending on the client, the rest of the script)
+-- ever runs -- which is exactly what happened before this fix.
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_pitch_deck_link_url;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_current_customers_nonneg;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_monthly_burn_nonneg;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_revenue_fy_nonneg;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_previous_round_nonneg;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_current_valuation_nonneg;
+ALTER TABLE public.startups DROP CONSTRAINT IF EXISTS chk_last_completed_step_range;
+
 ALTER TABLE public.startups
     ADD CONSTRAINT chk_pitch_deck_link_url
         CHECK (pitch_deck_link IS NULL OR pitch_deck_link = '' OR pitch_deck_link ~* '^https?://'),

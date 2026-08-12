@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Upload, CheckCircle2, AlertCircle, Building2, User, Shield, ArrowRight, ArrowLeft,
-  RefreshCw, DollarSign, FileText, TrendingUp,
+  RefreshCw, DollarSign, FileText, TrendingUp, ChevronDown, Search,
 } from 'lucide-react';
 import { apiClient } from './apiClient';
 import { isValidHttpUrl, validateLinkedInUrl } from '../../shared/src/securityUtils';
@@ -211,6 +211,138 @@ const COUNTRY_CODES: { name: string; iso2: string; dial: string }[] = [
 // phone string).
 function dialForIso2(iso2: string): string {
   return COUNTRY_CODES.find((c) => c.iso2 === iso2)?.dial || '+91';
+}
+
+// Searchable phone country-code picker. Defined at module scope (not inside FormPortal) on
+// purpose -- a component defined inside another component's body gets a fresh function identity
+// on every parent re-render, which React treats as an entirely new component type and remounts,
+// wiping out this component's own open/search state (and dropping keyboard focus) after every
+// single keystroke anywhere else in the form. Keeping it top-level avoids that.
+function CountryCodeDropdown({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (iso2: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlighted, setHighlighted] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const selected = COUNTRY_CODES.find((c) => c.iso2 === value) || COUNTRY_CODES[0];
+  const query = search.trim().toLowerCase();
+  const filtered = query === ''
+    ? COUNTRY_CODES
+    : COUNTRY_CODES.filter((c) =>
+        c.name.toLowerCase().includes(query) ||
+        c.dial.includes(query.startsWith('+') ? query : `+${query}`) ||
+        c.iso2.toLowerCase() === query
+      );
+
+  const close = () => {
+    setIsOpen(false);
+    setSearch('');
+    setHighlighted(0);
+  };
+
+  const open = () => {
+    setIsOpen(true);
+    setHighlighted(0);
+    // Focus happens after the dropdown (and its input) actually mounts.
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) close();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      close();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlighted((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlighted((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const pick = filtered[highlighted];
+      if (pick) {
+        onChange(pick.iso2);
+        close();
+      }
+    }
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        id={id}
+        onClick={() => (isOpen ? close() : open())}
+        className="h-full min-h-[38px] px-2.5 py-2 text-sm bg-neutral-50 border border-neutral-200 hover:border-neutral-300 focus:border-neutral-900 rounded-lg transition-colors outline-none cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+      >
+        <span className="text-base leading-none">{isoToFlagEmoji(selected.iso2)}</span>
+        <span className="text-neutral-700 font-medium">{selected.dial}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-neutral-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 left-0 mt-1.5 w-72 bg-white border border-neutral-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-neutral-100 relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search country or code..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setHighlighted(0);
+              }}
+              onKeyDown={handleSearchKeyDown}
+              className="w-full pl-8 pr-2 py-1.5 text-sm bg-neutral-50 border border-neutral-200 focus:border-neutral-900 rounded-lg transition-colors outline-none"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-6 text-xs text-neutral-400 text-center">No matching country or code.</div>
+            ) : (
+              filtered.map((c, i) => (
+                <button
+                  type="button"
+                  key={c.iso2}
+                  onClick={() => {
+                    onChange(c.iso2);
+                    close();
+                  }}
+                  onMouseEnter={() => setHighlighted(i)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                    i === highlighted ? 'bg-neutral-100' : ''
+                  } ${c.iso2 === selected.iso2 ? 'font-semibold text-neutral-900' : 'text-neutral-700'}`}
+                >
+                  <span className="text-base leading-none shrink-0">{isoToFlagEmoji(c.iso2)}</span>
+                  <span className="flex-1 truncate">{c.name}</span>
+                  <span className="text-neutral-400 text-xs font-mono shrink-0">{c.dial}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Guards against an out-of-range step index ever reaching `STEPS[currentStep]` -- both
@@ -1297,19 +1429,11 @@ export default function FormPortal() {
                     Phone Number <span className="text-red-500">*</span>
                   </label>
                   <div className="grid grid-cols-[auto_1fr] gap-2">
-                    <select
+                    <CountryCodeDropdown
                       id="submitter_phone_code"
-                      name="submitter_phone_code"
                       value={formFields.submitter_phone_code}
-                      onChange={handleInputChange}
-                      className="px-2 py-2 text-sm bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none cursor-pointer"
-                    >
-                      {COUNTRY_CODES.map((c) => (
-                        <option key={c.iso2} value={c.iso2}>
-                          {isoToFlagEmoji(c.iso2)} {c.dial}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(iso2) => setFormFields((prev) => ({ ...prev, submitter_phone_code: iso2 }))}
+                    />
                     <input
                       type="text"
                       id="submitter_phone"
@@ -1384,19 +1508,11 @@ export default function FormPortal() {
                         Phone Number <span className="text-red-500">*</span>
                       </label>
                       <div className="grid grid-cols-[auto_1fr] gap-2">
-                        <select
+                        <CountryCodeDropdown
                           id="founder_phone_code"
-                          name="founder_phone_code"
                           value={formFields.founder_phone_code}
-                          onChange={handleInputChange}
-                          className="px-2 py-2 text-sm bg-neutral-50 border border-neutral-200 focus:border-neutral-900 focus:bg-white rounded-lg transition-colors outline-none cursor-pointer"
-                        >
-                          {COUNTRY_CODES.map((c) => (
-                            <option key={c.iso2} value={c.iso2}>
-                              {isoToFlagEmoji(c.iso2)} {c.dial}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(iso2) => setFormFields((prev) => ({ ...prev, founder_phone_code: iso2 }))}
+                        />
                         <input
                           type="text"
                           id="founder_phone"
