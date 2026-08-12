@@ -156,8 +156,10 @@ export default function StartupDetail({
         {/* Drawer Header */}
         <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
           <div>
-            <h2 className="text-xl font-semibold text-neutral-900 tracking-tight flex items-center gap-2 mt-0.5">
-              {startup.company_name || <span className="text-neutral-400 italic font-normal">Company name not yet provided</span>}
+            <h2 className="text-xl font-semibold text-neutral-900 tracking-tight flex items-center gap-2 mt-0.5 min-w-0">
+              <span className="break-words">
+                {startup.company_name || <span className="text-neutral-400 italic font-normal">Company name not yet provided</span>}
+              </span>
               {startup.website && (
                 <a
                   href={safeHref(startup.website)}
@@ -300,11 +302,11 @@ export default function StartupDetail({
                 <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
                   Pitch & Executive Summary
                 </h3>
-                <p className="font-medium text-neutral-900 text-base leading-relaxed">
+                <p className="font-medium text-neutral-900 text-base leading-relaxed break-words">
                   {startup.one_line_pitch || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
                 </p>
                 {!startup.problem_statement && startup.description && (
-                  <p className="text-neutral-600 leading-relaxed bg-neutral-50 border border-neutral-200/50 p-4 rounded-xl mt-3">
+                  <p className="text-neutral-600 leading-relaxed break-words bg-neutral-50 border border-neutral-200/50 p-4 rounded-xl mt-3">
                     {startup.description}
                   </p>
                 )}
@@ -320,25 +322,25 @@ export default function StartupDetail({
                   {startup.problem_statement && (
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Problem Statement</span>
-                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.problem_statement}</p>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.problem_statement}</p>
                     </div>
                   )}
                   {startup.proposed_solution && (
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Proposed Solution</span>
-                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.proposed_solution}</p>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.proposed_solution}</p>
                     </div>
                   )}
                   {startup.target_audience && (
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Target Audience</span>
-                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.target_audience}</p>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.target_audience}</p>
                     </div>
                   )}
                   {startup.revenue_model && (
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Revenue Model</span>
-                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.revenue_model}</p>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.revenue_model}</p>
                     </div>
                   )}
                 </div>
@@ -519,7 +521,7 @@ export default function StartupDetail({
                     <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest font-mono">
                       Team Background & Pedigree
                     </span>
-                    <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap pl-1 border-l-2 border-neutral-200">
+                    <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words pl-1 border-l-2 border-neutral-200">
                       {startup.team_background}
                     </p>
                   </div>
@@ -570,7 +572,7 @@ export default function StartupDetail({
                   <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
                     Metrics & Traction
                   </h3>
-                  <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap bg-neutral-50 border border-neutral-200/40 p-4 rounded-xl">
+                  <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-4 rounded-xl">
                     {startup.traction}
                   </p>
                 </div>
@@ -729,7 +731,7 @@ export default function StartupDetail({
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </div>
-                              <p className="text-xs text-neutral-600 whitespace-pre-wrap leading-relaxed">
+                              <p className="text-xs text-neutral-600 whitespace-pre-wrap break-words leading-relaxed">
                                 {item.note.content}
                               </p>
                             </div>

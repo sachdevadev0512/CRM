@@ -75,8 +75,12 @@ const STEPS = [
   { title: 'Pitch Deck & Declaration', description: "Last step. Share your deck and confirm the details above are accurate.", icon: Upload },
 ];
 
-function countWords(text: string): number {
-  return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+// Was a whitespace-split word count, which reads as "broken" the moment the input isn't
+// space-separated prose -- e.g. a pasted block of run-on text with no spaces counts as a single
+// "word" no matter how long it actually is, so the on-screen counter stays stuck at 1 while the
+// field visibly fills up. Counting characters instead always reflects exactly what was typed.
+function countChars(text: string): number {
+  return text.length;
 }
 
 // Converts an ISO 3166-1 alpha-2 code to its flag emoji via Unicode regional indicator symbols
@@ -628,11 +632,11 @@ export default function FormPortal() {
     }
   };
 
-  const WordCount = ({ text, max }: { text: string; max: number }) => {
-    const count = countWords(text);
+  const CharCount = ({ text, max }: { text: string; max: number }) => {
+    const count = countChars(text);
     return (
       <div className={`flex justify-end text-[10px] font-mono ${count > max ? 'text-red-500 font-semibold' : 'text-neutral-400'}`}>
-        <span>{count} / {max} words</span>
+        <span>{count} / {max} characters</span>
       </div>
     );
   };
@@ -709,8 +713,8 @@ export default function FormPortal() {
 
       if (!formFields.one_line_pitch.trim()) {
         newErrors.one_line_pitch = 'One-liner is required.';
-      } else if (countWords(formFields.one_line_pitch) > 100) {
-        newErrors.one_line_pitch = `Keep it to 100 words or fewer (currently ${countWords(formFields.one_line_pitch)}).`;
+      } else if (countChars(formFields.one_line_pitch) > 700) {
+        newErrors.one_line_pitch = `Keep it to 700 characters or fewer (currently ${countChars(formFields.one_line_pitch)}).`;
       }
     }
 
@@ -739,18 +743,18 @@ export default function FormPortal() {
     }
 
     if (stepIndex === 3) {
-      const wordLimited: [keyof FormFields, string, number][] = [
-        ['problem_statement', 'Problem statement', 250],
-        ['proposed_solution', 'Proposed solution', 500],
-        ['target_audience', 'Target audience', 100],
-        ['revenue_model', 'Revenue model', 500],
+      const charLimited: [keyof FormFields, string, number][] = [
+        ['problem_statement', 'Problem statement', 1800],
+        ['proposed_solution', 'Proposed solution', 3600],
+        ['target_audience', 'Target audience', 700],
+        ['revenue_model', 'Revenue model', 3600],
       ];
-      for (const [field, label, max] of wordLimited) {
+      for (const [field, label, max] of charLimited) {
         const value = String(formFields[field] ?? '');
         if (!value.trim()) {
           newErrors[field] = `${label} is required.`;
-        } else if (countWords(value) > max) {
-          newErrors[field] = `Keep it to ${max} words or fewer (currently ${countWords(value)}).`;
+        } else if (countChars(value) > max) {
+          newErrors[field] = `Keep it to ${max} characters or fewer (currently ${countChars(value)}).`;
         }
       }
     }
@@ -858,6 +862,11 @@ export default function FormPortal() {
     setTurnstileToken('');
     setStep1Block(null);
     closeResumePanel();
+    // Without these two, "Apply for Another Company" (which calls resetAll from the success
+    // screen) left isSuccess/submittedId set, so the early `if (isSuccess)` return above kept
+    // rendering the same success screen forever no matter what else got reset.
+    setIsSuccess(false);
+    setSubmittedId('');
   };
 
   const openResumePanel = (prefillEmail = '') => {
@@ -1740,7 +1749,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2 text-sm bg-neutral-50 border ${errors.one_line_pitch ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none resize-none`}
                   />
-                  <WordCount text={formFields.one_line_pitch} max={100} />
+                  <CharCount text={formFields.one_line_pitch} max={700} />
                   {errors.one_line_pitch && <span className="text-xs text-red-500">{errors.one_line_pitch}</span>}
                 </div>
               </>
@@ -1948,7 +1957,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2.5 text-sm bg-neutral-50 border ${errors.problem_statement ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none resize-none`}
                   />
-                  <WordCount text={formFields.problem_statement} max={250} />
+                  <CharCount text={formFields.problem_statement} max={1800} />
                   {errors.problem_statement && <span className="text-xs text-red-500">{errors.problem_statement}</span>}
                 </div>
 
@@ -1966,7 +1975,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2.5 text-sm bg-neutral-50 border ${errors.proposed_solution ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none resize-none`}
                   />
-                  <WordCount text={formFields.proposed_solution} max={500} />
+                  <CharCount text={formFields.proposed_solution} max={3600} />
                   {errors.proposed_solution && <span className="text-xs text-red-500">{errors.proposed_solution}</span>}
                 </div>
 
@@ -1984,7 +1993,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2.5 text-sm bg-neutral-50 border ${errors.target_audience ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none resize-none`}
                   />
-                  <WordCount text={formFields.target_audience} max={100} />
+                  <CharCount text={formFields.target_audience} max={700} />
                   {errors.target_audience && <span className="text-xs text-red-500">{errors.target_audience}</span>}
                 </div>
 
@@ -2002,7 +2011,7 @@ export default function FormPortal() {
                     onChange={handleInputChange}
                     className={`w-full px-3 py-2.5 text-sm bg-neutral-50 border ${errors.revenue_model ? 'border-red-300 focus:border-red-400' : 'border-neutral-200 focus:border-neutral-900'} focus:bg-white rounded-lg transition-colors outline-none resize-none`}
                   />
-                  <WordCount text={formFields.revenue_model} max={500} />
+                  <CharCount text={formFields.revenue_model} max={3600} />
                   {errors.revenue_model && <span className="text-xs text-red-500">{errors.revenue_model}</span>}
                 </div>
               </>

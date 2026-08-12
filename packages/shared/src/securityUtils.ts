@@ -55,15 +55,18 @@ export function isValidHttpUrl(url: string): boolean {
 
 /**
  * Strictly validates LinkedIn profiles to ensure they are legitimate linkedIn URLs.
- * Matches: https://linkedin.com/in/... or http://www.linkedin.com/in/... etc.
+ * Matches: https://linkedin.com/in/..., http://www.linkedin.com/in/..., the 1-letter
+ * mobile subdomain (https://m.linkedin.com/in/...), and LinkedIn's own share-link
+ * domain (https://lnkd.in/...) -- all of these show up in real copy-pasted LinkedIn
+ * links, so rejecting them was a false negative, not a security boundary.
  */
 export function validateLinkedInUrl(url: string): boolean {
   if (!url || !url.trim()) return false;
   const trimmed = url.trim();
-  const withProto = trimmed.startsWith('http://') || trimmed.startsWith('https://') 
-    ? trimmed 
+  const withProto = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+    ? trimmed
     : `https://${trimmed}`;
-  const pattern = /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/[a-z0-9_-]/i;
+  const pattern = /^https?:\/\/(?:([a-z]{1,3}\.)?linkedin\.com\/[a-z0-9_-]|lnkd\.in\/[a-z0-9_-]+)/i;
   return pattern.test(withProto);
 }
 

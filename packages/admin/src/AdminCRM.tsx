@@ -1327,7 +1327,7 @@ export default function AdminCRM() {
               return (
                 <div
                   key={status}
-                  className="bg-neutral-50 border border-neutral-200/60 rounded-xl p-3 min-w-[260px] shrink-0 max-h-[80vh] flex flex-col overflow-hidden"
+                  className="bg-neutral-50 border border-neutral-200/60 rounded-xl p-3 w-[260px] min-w-[260px] shrink-0 max-h-[80vh] flex flex-col overflow-hidden"
                 >
                   {/* Column Header (Sticky) */}
                   <div className="sticky top-0 bg-neutral-50 z-10 flex justify-between items-center px-1 border-b border-neutral-200 pb-2 shrink-0">
@@ -1353,7 +1353,7 @@ export default function AdminCRM() {
                           <div
                             key={s.id}
                             onClick={() => setSelectedStartup(s)}
-                            className="bg-white border border-neutral-200 hover:border-neutral-900 hover:shadow-2xs p-3 rounded-lg cursor-pointer transition-all space-y-2 text-xs group relative text-left"
+                            className="bg-white border border-neutral-200 hover:border-neutral-900 hover:shadow-2xs p-3 rounded-lg cursor-pointer transition-all space-y-2 text-xs group relative text-left break-words min-w-0"
                           >
                             <div className="flex justify-between items-start gap-2">
                               <span className="font-semibold text-neutral-900 group-hover:underline line-clamp-1">
@@ -1458,8 +1458,8 @@ export default function AdminCRM() {
                             className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer h-3.5 w-3.5"
                           />
                         </td>
-                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline">
-                          {s.company_name}
+                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[220px]">
+                          <div className="truncate" title={s.company_name || undefined}>{s.company_name}</div>
                         </td>
                         <td className="px-6 py-3 text-neutral-600">{s.sector}</td>
                         <td className="px-6 py-3 text-neutral-600">{s.hq_location}</td>
@@ -1581,8 +1581,10 @@ export default function AdminCRM() {
                         onClick={() => setSelectedStartup(s)}
                         className="hover:bg-neutral-50/50 cursor-pointer group text-left"
                       >
-                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline">
-                          {s.company_name || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
+                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[220px]">
+                          <div className="truncate" title={s.company_name || undefined}>
+                            {s.company_name || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
+                          </div>
                         </td>
                         <td className="px-6 py-3 text-neutral-600">
                           <div>{s.submitter_name || '—'}</div>
