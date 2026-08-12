@@ -33,6 +33,7 @@ import {
   Ban
 } from 'lucide-react';
 import { Startup, AuditLog, PipelineStatus, Admin, AdminInvite } from '../../shared/src/types';
+import { getCurrencySymbol } from '../../shared/src/currency';
 import { apiClient } from './apiClient';
 import StartupDetail from './StartupDetail';
 import AcceptAdminInvite from './AcceptAdminInvite';
@@ -1377,7 +1378,7 @@ export default function AdminCRM() {
                             </div>
 
                             <div className="pt-2 border-t border-neutral-100 flex justify-between items-center text-[9px] font-mono text-neutral-400">
-                              <span>Raise: ₹{(s.target_raise || 0).toLocaleString()}</span>
+                              <span>Raise: {getCurrencySymbol(s.currency)}{(s.target_raise || 0).toLocaleString()}</span>
                             </div>
 
                             {/* Fast Move dropdown on hover */}
@@ -1458,7 +1459,7 @@ export default function AdminCRM() {
                             className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer h-3.5 w-3.5"
                           />
                         </td>
-                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[220px]">
+                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[320px]">
                           <div className="truncate" title={s.company_name || undefined}>{s.company_name}</div>
                         </td>
                         <td className="px-6 py-3 text-neutral-600">{s.sector}</td>
@@ -1469,7 +1470,7 @@ export default function AdminCRM() {
                           </span>
                         </td>
                         <td className="px-6 py-3 font-mono text-neutral-900 font-semibold">
-                          ₹{(s.target_raise || 0).toLocaleString()}
+                          {getCurrencySymbol(s.currency)}{(s.target_raise || 0).toLocaleString()}
                         </td>
                         <td className="px-6 py-3">
                           <span
@@ -1581,7 +1582,7 @@ export default function AdminCRM() {
                         onClick={() => setSelectedStartup(s)}
                         className="hover:bg-neutral-50/50 cursor-pointer group text-left"
                       >
-                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[220px]">
+                        <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[320px]">
                           <div className="truncate" title={s.company_name || undefined}>
                             {s.company_name || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
                           </div>

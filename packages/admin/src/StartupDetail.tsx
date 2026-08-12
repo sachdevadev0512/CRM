@@ -4,6 +4,7 @@ import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, Tr
 import { Startup, Note, PipelineStatus, AuditLog } from '../../shared/src/types';
 import { apiClient } from './apiClient';
 import { safeHref } from '../../shared/src/securityUtils';
+import { getCurrencySymbol } from '../../shared/src/currency';
 
 interface StartupDetailProps {
   startup: Startup;
@@ -130,10 +131,12 @@ export default function StartupDetail({
     'Archived',
   ];
 
-  // Always render the Rupee symbol regardless of the stored `currency` value -- per product
-  // decision, every amount in the CRM displays as INR for consistency, rather than switching
-  // symbols based on whichever currency an applicant happened to select on the form.
-  const currencySymbol = '₹';
+  // The applicant picks a currency (INR/USD/EUR) once on the public form, and every amount
+  // field on their application -- funding ask, valuation, previous round, revenue, burn -- is
+  // in that currency. Rendering a different symbol here would silently misrepresent the actual
+  // amount (a $5,000 ask displayed as "₹5,000" is off by ~85x), so this must always follow the
+  // row's own `currency`, never a fixed symbol.
+  const currencySymbol = getCurrencySymbol(startup.currency);
   const isDraft = startup.status === 'In Progress';
 
   return (

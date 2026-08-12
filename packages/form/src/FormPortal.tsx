@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from './apiClient';
 import { isValidHttpUrl, validateLinkedInUrl } from '../../shared/src/securityUtils';
+import { getCurrencySymbol } from '../../shared/src/currency';
 import { ApplicationStepData } from '../../shared/src/types';
 
 const DRAFT_STORAGE_KEY = 'mv_application_draft';
@@ -621,14 +622,6 @@ export default function FormPortal() {
         delete newErrs[fieldName];
         return newErrs;
       });
-    }
-  };
-
-  const getCurrencySymbol = (curr: string) => {
-    switch (curr) {
-      case 'USD': return '$';
-      case 'EUR': return '€';
-      default: return '₹';
     }
   };
 
