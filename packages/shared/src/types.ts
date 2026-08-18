@@ -76,6 +76,10 @@ export interface Startup {
   last_completed_step: number;
   submitted_at?: string | null;
 
+  // Analysis owner -- the admin (public.admins.id) currently assigned to review this
+  // application. Null/undefined means unassigned.
+  assigned_admin_id?: string | null;
+
   created_at: string;
   updated_at: string;
 }

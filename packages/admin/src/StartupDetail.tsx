@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, Plus, Trash2, Send, Clock, RefreshCw, Phone } from 'lucide-react';
-import { Startup, Note, PipelineStatus, AuditLog } from '../../shared/src/types';
+import { Startup, Note, PipelineStatus, AuditLog, Admin } from '../../shared/src/types';
 import { apiClient } from './apiClient';
 import { safeHref } from '../../shared/src/securityUtils';
 import { getCurrencySymbol } from '../../shared/src/currency';
@@ -15,6 +15,10 @@ interface StartupDetailProps {
   // Bumped by the parent whenever a note/status change is made from outside this
   // drawer (e.g. the status-note popup) so the activity feed knows to refetch.
   activityRefreshKey?: number;
+  // Full admin roster, for the "assigned analyst" dropdown -- any admin (including the
+  // current one) can be assigned. Fetched/owned by the parent, same as elsewhere in the app.
+  adminsList: Admin[];
+  onAssignAdmin: (adminId: string | null) => void;
 }
 
 export default function StartupDetail({
@@ -24,6 +28,8 @@ export default function StartupDetail({
   onDelete,
   currentUser,
   activityRefreshKey,
+  adminsList,
+  onAssignAdmin,
 }: StartupDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'notes'>('overview');
   const [activityFilter, setActivityFilter] = useState<'all' | 'notes'>('all');
@@ -231,6 +237,27 @@ export default function StartupDetail({
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
+        </div>
+
+        {/* Analysis assignment -- any admin (including yourself) can own reviewing this
+            application. Writes immediately on change, mirroring the "Analysis" column
+            dropdown in the Deal Table (same handler on the parent). */}
+        <div className="px-6 py-3 border-b border-neutral-100 flex items-center gap-2">
+          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Analysis:</span>
+          <select
+            value={startup.assigned_admin_id || ''}
+            onChange={(e) => onAssignAdmin(e.target.value || null)}
+            className="px-3 py-1.5 bg-white border border-neutral-200 hover:border-neutral-900 text-xs font-semibold rounded-lg outline-none cursor-pointer text-neutral-800"
+            id="assigned-admin-select-drawer"
+            title="Assign an admin to analyze this application"
+          >
+            <option value="">Unassigned</option>
+            {adminsList.map((admin) => (
+              <option key={admin.id} value={admin.id}>
+                {admin.email}{admin.id === currentUser.id ? ' (You)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Navigation Tabs */}

@@ -24,7 +24,7 @@ const ADMIN_STARTUP_COLUMNS = [
   'previous_round_valuation', 'previous_round_date', 'current_valuation', 'problem_statement',
   'proposed_solution', 'target_audience', 'revenue_model', 'current_customers', 'monthly_burn',
   'revenue_fy_2425', 'revenue_fy_2526', 'revenue_fy_2627', 'pitch_deck_link', 'declaration_accepted',
-  'last_completed_step', 'submitted_at', 'created_at', 'updated_at',
+  'last_completed_step', 'submitted_at', 'assigned_admin_id', 'created_at', 'updated_at',
 ].join(', ');
 
 router.get('/', async (req, res) => {
@@ -85,6 +85,72 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
+// Assigns (or unassigns, with admin_id: null) the admin responsible for reviewing/analyzing
+// this application -- the "Analysis" column in the Deal Table and the drawer's assignment
+// dropdown both call this. Any admin can assign themselves or a colleague; there is no
+// ownership restriction, matching the "Admin update startups" RLS policy this relies on.
+router.patch('/:id/assign', async (req, res) => {
+  try {
+    const { user, userClient } = await requireAdmin(req);
+    const { id } = req.params;
+    const { admin_id } = req.body;
+
+    if (admin_id !== null && typeof admin_id !== 'string') {
+      return res.status(400).json({ error: 'admin_id must be a string admin id or null to unassign.' });
+    }
+
+    const { data: currentStartup } = await userClient
+      .from('startups')
+      .select('company_name, assigned_admin_id')
+      .eq('id', id)
+      .single();
+
+    let newAdminEmail: string | null = null;
+    if (admin_id) {
+      const { data: targetAdmin, error: targetAdminError } = await userClient
+        .from('admins')
+        .select('id, email')
+        .eq('id', admin_id)
+        .single();
+      if (targetAdminError || !targetAdmin) {
+        return res.status(400).json({ error: 'The selected admin no longer exists.' });
+      }
+      newAdminEmail = targetAdmin.email;
+    }
+
+    let oldAdminEmail: string | null = null;
+    if (currentStartup?.assigned_admin_id) {
+      const { data: prevAdmin } = await userClient
+        .from('admins')
+        .select('email')
+        .eq('id', currentStartup.assigned_admin_id)
+        .single();
+      oldAdminEmail = prevAdmin?.email || null;
+    }
+
+    const { error } = await userClient
+      .from('startups')
+      .update({ assigned_admin_id: admin_id, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+
+    await logAuditEvent(userClient, {
+      user_id: user.id,
+      user_email: user.email,
+      action: 'Assigned admin',
+      target_id: id,
+      target_name: currentStartup?.company_name || 'Startup',
+      details: { old_admin: oldAdminEmail, new_admin: newAdminEmail },
+    });
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+    console.error('Error assigning startup admin:', error);
+    return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     const { user, userClient } = await requireAdmin(req);
@@ -112,6 +178,55 @@ router.delete('/:id', async (req, res) => {
   } catch (error: any) {
     if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
     console.error('Error deleting startup:', error);
+    return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+  }
+});
+
+// Bulk delete — used by the admin table's row-checkbox selection. A distinct path (not
+// `DELETE /:id`) avoids colliding with the single-row route above.
+router.delete('/bulk', async (req, res) => {
+  try {
+    const { user, userClient } = await requireAdmin(req);
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array.' });
+    }
+
+    const { data: targets } = await userClient
+      .from('startups')
+      .select('id, company_name')
+      .in('id', ids);
+
+    const { data: deleted, error } = await userClient
+      .from('startups')
+      .delete()
+      .in('id', ids)
+      .select('id, company_name');
+    if (error) throw error;
+
+    // RLS can silently no-op rows it blocks rather than erroring, so only log/report what
+    // actually came back as deleted (mirrors the check in routes/admins.ts).
+    const deletedIds = new Set((deleted || []).map((row: any) => row.id));
+    const nameById = new Map((targets || []).map((row: any) => [row.id, row.company_name]));
+
+    await Promise.all(
+      Array.from(deletedIds).map((id) =>
+        logAuditEvent(userClient, {
+          user_id: user.id,
+          user_email: user.email,
+          action: 'Delete',
+          target_id: id,
+          target_name: nameById.get(id) || 'Startup',
+          details: { message: `Startup '${nameById.get(id) || id}' deleted by admin (bulk delete).` },
+        })
+      )
+    );
+
+    return res.json({ success: true, deletedCount: deletedIds.size, requestedCount: ids.length });
+  } catch (error: any) {
+    if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+    console.error('Error bulk deleting startups:', error);
     return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
   }
 });

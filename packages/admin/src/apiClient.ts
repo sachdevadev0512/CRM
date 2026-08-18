@@ -92,9 +92,25 @@ export const apiClient = {
     return !!data?.success;
   },
 
+  async assignStartupAdmin(id: string, adminId: string | null): Promise<boolean> {
+    const data = await authFetchJson(`/api/startups/${id}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ admin_id: adminId }),
+    });
+    return !!data?.success;
+  },
+
   async deleteStartup(id: string): Promise<boolean> {
     const data = await authFetchJson(`/api/startups/${id}`, { method: 'DELETE' });
     return !!data?.success;
+  },
+
+  async deleteStartups(ids: string[]): Promise<{ success: boolean; deletedCount: number }> {
+    const data = await authFetchJson('/api/startups/bulk', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    });
+    return { success: !!data?.success, deletedCount: data?.deletedCount ?? 0 };
   },
 
   async getNotes(startupId: string): Promise<Note[]> {

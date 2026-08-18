@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -41,7 +41,7 @@ import AcceptAdminInvite from './AcceptAdminInvite';
 interface BusinessAuditEntry {
   id: string;
   created_at: string;
-  eventType: 'Application Submitted' | 'Status Changed' | 'Note Added' | 'Startup Updated' | 'Startup Deleted' | 'Administrator Created' | 'Administrator Revoked' | 'Administrator Invited' | 'Administrator Invite Cancelled' | 'Administrator Invite Resent' | 'CSV Export Generated';
+  eventType: 'Application Submitted' | 'Status Changed' | 'Note Added' | 'Startup Updated' | 'Startup Deleted' | 'Admin Assigned' | 'Administrator Created' | 'Administrator Revoked' | 'Administrator Invited' | 'Administrator Invite Cancelled' | 'Administrator Invite Resent' | 'CSV Export Generated';
   category: 'public' | 'crm';
   target: string;
   targetDetails?: string;
@@ -85,6 +85,22 @@ const normalizeAuditLogs = (logs: AuditLog[]): BusinessAuditEntry[] => {
       continue;
     }
     
+    // 2a. Admin Assigned -- the "Analysis" column / drawer dropdown assignment.
+    if (act.includes('assigned admin') || act.includes('admin assigned')) {
+      const oldAdmin = details.old_admin || 'Unassigned';
+      const newAdmin = details.new_admin || 'Unassigned';
+      result.push({
+        id: log.id,
+        created_at: log.created_at,
+        eventType: 'Admin Assigned',
+        category: 'crm',
+        target: log.target_name || 'Startup',
+        targetDetails: `${oldAdmin} → ${newAdmin}`,
+        performedBy: log.user_email || 'System'
+      });
+      continue;
+    }
+
     // 3. Note Added
     if (act.includes('reviewer note changes') || act.includes('note added') || act.includes('reviewer note')) {
       const msg = (details.message || '').toLowerCase();
@@ -254,6 +270,9 @@ export default function AdminCRM() {
   const [selectedStartupIds, setSelectedStartupIds] = useState<string[]>([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState('');
 
   // Logs Search & Filter states
   const [logSearchTerm, setLogSearchTerm] = useState('');
@@ -264,10 +283,16 @@ export default function AdminCRM() {
   const [auditLogCategoryFilter, setAuditLogCategoryFilter] = useState<'public' | 'crm'>('public');
 
   // Pagination states
-  const [startupCurrentPage, setStartupCurrentPage] = useState(1);
   const [logCurrentPage, setLogCurrentPage] = useState(1);
-  const startupsPerPage = 10;
   const logsPerPage = 20;
+
+  // Deal Table uses infinite scroll instead of page buttons: this tracks how many of the
+  // (already fully in-memory, see fetchCRMData) sorted/filtered rows are currently rendered.
+  // It only grows -- there's no server page to fetch, so revealing more rows is instant with
+  // no loading flash.
+  const startupsPerPage = 10;
+  const [visibleStartupCount, setVisibleStartupCount] = useState(startupsPerPage);
+  const startupScrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -277,7 +302,7 @@ export default function AdminCRM() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    setStartupCurrentPage(1);
+    setVisibleStartupCount(startupsPerPage);
   }, [searchTerm, selectedSector, selectedStage]);
 
   useEffect(() => {
@@ -358,6 +383,11 @@ export default function AdminCRM() {
           icon: <Trash2 className="h-3 w-3 text-red-600" />,
           bgColor: 'bg-red-50 border-red-100 text-red-800'
         };
+      case 'Admin Assigned':
+        return {
+          icon: <Users className="h-3 w-3 text-cyan-600" />,
+          bgColor: 'bg-cyan-50 border-cyan-100 text-cyan-800'
+        };
       case 'Administrator Created':
         return {
           icon: <UserPlus className="h-3 w-3 text-emerald-600" />,
@@ -420,6 +450,37 @@ export default function AdminCRM() {
         });
         return newIds;
       });
+    }
+  };
+
+  // Bulk delete -- permanently removes every checked row. Nothing is written until the
+  // admin explicitly confirms in the modal below; cancelling leaves selection untouched.
+  const handleBulkDeleteRequest = () => {
+    if (selectedStartupIds.length === 0) return;
+    setBulkDeleteError('');
+    setIsBulkDeleteConfirmOpen(true);
+  };
+
+  const handleCancelBulkDelete = () => {
+    if (isBulkDeleting) return;
+    setIsBulkDeleteConfirmOpen(false);
+    setBulkDeleteError('');
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedStartupIds.length === 0) return;
+    setIsBulkDeleting(true);
+    setBulkDeleteError('');
+    try {
+      await apiClient.deleteStartups(selectedStartupIds);
+      setSelectedStartupIds([]);
+      setIsBulkDeleteConfirmOpen(false);
+      await fetchCRMData();
+    } catch (err: any) {
+      console.error(err);
+      setBulkDeleteError(err.message || 'Failed to delete the selected startups.');
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -721,6 +782,35 @@ export default function AdminCRM() {
     setStatusNoteText('');
   };
 
+  // Analysis-owner assignment -- lets any admin assign themselves or a colleague to a
+  // given application, from either the Deal Table's "Analysis" column or the drawer.
+  // Unlike status changes, this writes immediately (no confirmation modal) since it's
+  // low-stakes and fully reversible by picking a different admin or "Unassigned".
+  const handleAssignAdmin = async (id: string, adminId: string | null) => {
+    if (!currentUser) return;
+
+    const previousStartups = [...startups];
+    const previousSelectedStartup = selectedStartup ? { ...selectedStartup } : null;
+
+    setStartups(prev => prev.map(s => (s.id === id ? { ...s, assigned_admin_id: adminId } : s)));
+    if (selectedStartup && selectedStartup.id === id) {
+      setSelectedStartup(prev => (prev ? { ...prev, assigned_admin_id: adminId } : null));
+    }
+
+    try {
+      const success = await apiClient.assignStartupAdmin(id, adminId);
+      if (!success) throw new Error('Server declined the assignment.');
+      const logs = await apiClient.getAuditLogs();
+      setAuditLogs(logs);
+      setActivityRefreshTick(t => t + 1);
+    } catch (err: any) {
+      console.error('Failed to assign admin:', err);
+      setStartups(previousStartups);
+      setSelectedStartup(previousSelectedStartup);
+      alert('Failed to update the assigned admin: ' + (err.message || err));
+    }
+  };
+
   // Admin Management actions
   const handleInviteAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -871,10 +961,31 @@ export default function AdminCRM() {
     return 0;
   });
 
-  // Paginated Startups for Table View
-  const startupStartIndex = (startupCurrentPage - 1) * startupsPerPage;
-  const paginatedStartups = sortedStartups.slice(startupStartIndex, startupStartIndex + startupsPerPage);
-  const totalStartupPages = Math.ceil(sortedStartups.length / startupsPerPage);
+  // Infinite-scroll window into the Deal Table -- always the first N of the sorted/filtered
+  // list, growing as the sentinel below scrolls into view.
+  const paginatedStartups = sortedStartups.slice(0, visibleStartupCount);
+  const hasMoreStartups = visibleStartupCount < sortedStartups.length;
+
+  // Watches a 1px sentinel just past the last rendered row. `rootMargin` fires this ~400px
+  // before the sentinel actually reaches the viewport, so the next batch of (already
+  // in-memory) rows is appended before the admin scrolls far enough to notice a gap -- no
+  // spinner, no visible "batch load" pause. Only active on the Deal Table tab.
+  useEffect(() => {
+    if (activeTab !== 'table' || !hasMoreStartups) return;
+    const node = startupScrollSentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleStartupCount(prev => Math.min(sortedStartups.length, prev + startupsPerPage));
+        }
+      },
+      { rootMargin: '400px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [activeTab, hasMoreStartups, sortedStartups.length]);
 
   // 1. Normalize all logs to the clean business-focused model
   const normalizedLogs = useMemo(() => {
@@ -897,6 +1008,7 @@ export default function AdminCRM() {
       return [
         'All',
         'Status Changed',
+        'Admin Assigned',
         'Note Added',
         'Startup Updated',
         'Startup Deleted',
@@ -1297,6 +1409,17 @@ export default function AdminCRM() {
                 </select>
               </div>
 
+              {/* Delete Selected Button -- only usable once at least one row is checked */}
+              <button
+                onClick={handleBulkDeleteRequest}
+                disabled={selectedStartupIds.length === 0}
+                className="inline-flex items-center justify-center gap-1.5 px-4 h-8 bg-red-600 hover:bg-red-700 disabled:bg-neutral-200 disabled:text-neutral-400 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed shrink-0 shadow-3xs"
+                id="btn-bulk-delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete{selectedStartupIds.length > 0 ? ` (${selectedStartupIds.length})` : ''}
+              </button>
+
               {/* Export CSV Button */}
               <button
                 onClick={() => setIsExportModalOpen(true)}
@@ -1431,6 +1554,7 @@ export default function AdminCRM() {
                       Target Raise {sortBy === 'raise' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th className="px-6 py-3">Status</th>
+                    <th className="px-6 py-3">Analysis</th>
                     <th className="px-6 py-3 cursor-pointer hover:bg-neutral-100" onClick={() => toggleSort('date')}>
                       Applied On {sortBy === 'date' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
@@ -1440,7 +1564,7 @@ export default function AdminCRM() {
                 <tbody className="divide-y divide-neutral-150">
                   {sortedStartups.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-16 text-neutral-400 font-mono">
+                      <td colSpan={10} className="text-center py-16 text-neutral-400 font-mono">
                         No database records matched your active search and filter presets.
                       </td>
                     </tr>
@@ -1487,6 +1611,21 @@ export default function AdminCRM() {
                             {s.status}
                           </span>
                         </td>
+                        <td className="px-6 py-3" onClick={e => e.stopPropagation()}>
+                          <select
+                            value={s.assigned_admin_id || ''}
+                            onChange={(e) => handleAssignAdmin(s.id, e.target.value || null)}
+                            className="px-2 py-1 bg-neutral-50 border border-neutral-200 hover:border-neutral-900 focus:border-neutral-900 text-[11px] font-medium rounded-lg outline-none cursor-pointer text-neutral-700 max-w-[160px]"
+                            title="Assign an admin to analyze this application"
+                          >
+                            <option value="">Unassigned</option>
+                            {adminsList.map(admin => (
+                              <option key={admin.id} value={admin.id}>
+                                {admin.email}{admin.id === currentUser?.id ? ' (You)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
                         <td className="px-6 py-3 text-neutral-500 font-mono">
                           {new Date(s.created_at).toLocaleDateString()}
                         </td>
@@ -1506,45 +1645,17 @@ export default function AdminCRM() {
               </table>
             </div>
 
-            {totalStartupPages > 1 && (
-              <div className="px-6 py-4 bg-neutral-50/50 border-t border-neutral-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                <span className="text-neutral-500">
-                  Showing <span className="font-semibold text-neutral-800">{startupStartIndex + 1}</span> to{' '}
-                  <span className="font-semibold text-neutral-800">
-                    {Math.min(startupStartIndex + startupsPerPage, sortedStartups.length)}
-                  </span>{' '}
-                  of <span className="font-semibold text-neutral-800">{sortedStartups.length}</span> records
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setStartupCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={startupCurrentPage === 1}
-                    className="px-3 py-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-50 disabled:opacity-40 disabled:hover:bg-transparent font-medium cursor-pointer"
-                  >
-                    Previous
-                  </button>
-                  {Array.from({ length: totalStartupPages }, (_, i) => i + 1).map(pageNum => (
-                    <button
-                      key={pageNum}
-                      onClick={() => setStartupCurrentPage(pageNum)}
-                      className={`px-3 py-1.5 border rounded-lg font-medium transition-all cursor-pointer ${
-                        startupCurrentPage === pageNum
-                          ? 'bg-neutral-900 border-neutral-900 text-white shadow-2xs'
-                          : 'border-neutral-200 hover:bg-neutral-50 text-neutral-600'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setStartupCurrentPage(p => Math.min(totalStartupPages, p + 1))}
-                    disabled={startupCurrentPage === totalStartupPages}
-                    className="px-3 py-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-50 disabled:opacity-40 disabled:hover:bg-transparent font-medium cursor-pointer"
-                  >
-                    Next
-                  </button>
+            {sortedStartups.length > 0 && (
+              <>
+                {/* 1px sentinel -- IntersectionObserver above appends the next batch of already
+                    in-memory rows once this scrolls near the viewport. No click, no spinner. */}
+                <div ref={startupScrollSentinelRef} aria-hidden="true" />
+                <div className="px-6 py-3 bg-neutral-50/50 border-t border-neutral-200 flex items-center justify-center text-xs text-neutral-400">
+                  Showing <span className="font-semibold text-neutral-700 mx-1">{paginatedStartups.length}</span> of{' '}
+                  <span className="font-semibold text-neutral-700 mx-1">{sortedStartups.length}</span> records
+                  {hasMoreStartups ? ' — scroll for more' : ''}
                 </div>
-              </div>
+              </>
             )}
           </div>
         ) : activeTab === 'drafts' ? (
@@ -2091,6 +2202,8 @@ export default function AdminCRM() {
             startup={selectedStartup}
             currentUser={currentUser}
             activityRefreshKey={activityRefreshTick}
+            adminsList={adminsList}
+            onAssignAdmin={adminId => handleAssignAdmin(selectedStartup.id, adminId)}
             onClose={() => setSelectedStartup(null)}
             onUpdateStatus={status => handleStatusChangeRequest(selectedStartup.id, status)}
             onDelete={() => {
@@ -2207,6 +2320,54 @@ export default function AdminCRM() {
                   className="px-3.5 py-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-100 text-neutral-600 font-semibold text-xs cursor-pointer transition-colors"
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isBulkDeleteConfirmOpen && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
+            onClick={handleCancelBulkDelete}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="w-full max-w-md bg-white border border-neutral-200 rounded-xl shadow-2xl p-6 space-y-4"
+              id="bulk-delete-confirm-prompt"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold text-neutral-900 tracking-tight">
+                Delete {selectedStartupIds.length} Application{selectedStartupIds.length === 1 ? '' : 's'} Entirely?
+              </h3>
+              <p className="text-neutral-500 text-xs leading-relaxed">
+                This action is permanent and irreversible. It will completely delete the{' '}
+                <span className="font-semibold text-neutral-800">{selectedStartupIds.length}</span> selected
+                application{selectedStartupIds.length === 1 ? '' : 's'}, associated reviewer notes, and storage
+                records from the CRM.
+              </p>
+              {bulkDeleteError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{bulkDeleteError}</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={handleCancelBulkDelete}
+                  disabled={isBulkDeleting}
+                  className="px-3.5 py-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-50 text-neutral-600 font-semibold text-xs cursor-pointer transition-colors disabled:opacity-50"
+                  id="btn-cancel-bulk-delete"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmBulkDelete}
+                  disabled={isBulkDeleting}
+                  className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-neutral-300 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  id="btn-confirm-bulk-delete"
+                >
+                  {isBulkDeleting ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                  Confirm Permanent Delete
                 </button>
               </div>
             </motion.div>
