@@ -95,8 +95,13 @@ router.patch('/:id/assign', async (req, res) => {
     const { id } = req.params;
     const { admin_id } = req.body;
 
-    if (admin_id !== null && typeof admin_id !== 'string') {
-      return res.status(400).json({ error: 'admin_id must be a string admin id or null to unassign.' });
+    // The admin dropdown always sends null for "Unassigned" (never ''), but a direct/malformed
+    // API call could still send an empty string -- reject it explicitly here rather than letting
+    // it fall through to the update below, where it would hit the same failure mode as the
+    // route-ordering bug this file just had: an empty string isn't a valid uuid, so Postgres
+    // would throw "invalid input syntax for type uuid" as a raw 500 instead of a clean 400.
+    if (admin_id !== null && (typeof admin_id !== 'string' || admin_id.trim() === '')) {
+      return res.status(400).json({ error: 'admin_id must be a non-empty string admin id or null to unassign.' });
     }
 
     const { data: currentStartup } = await userClient
@@ -151,39 +156,10 @@ router.patch('/:id/assign', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
-  try {
-    const { user, userClient } = await requireAdmin(req);
-    const { id } = req.params;
-
-    const { data: currentStartup } = await userClient
-      .from('startups')
-      .select('company_name')
-      .eq('id', id)
-      .single();
-
-    const { error } = await userClient.from('startups').delete().eq('id', id);
-    if (error) throw error;
-
-    await logAuditEvent(userClient, {
-      user_id: user.id,
-      user_email: user.email,
-      action: 'Delete',
-      target_id: id,
-      target_name: currentStartup?.company_name || 'Startup',
-      details: { message: `Startup '${currentStartup?.company_name}' deleted by admin.` },
-    });
-
-    return res.json({ success: true });
-  } catch (error: any) {
-    if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
-    console.error('Error deleting startup:', error);
-    return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
-  }
-});
-
-// Bulk delete — used by the admin table's row-checkbox selection. A distinct path (not
-// `DELETE /:id`) avoids colliding with the single-row route above.
+// Bulk delete -- used by the admin table's row-checkbox selection. Registered BEFORE
+// `DELETE /:id` below: Express matches routes in registration order, so if `/:id` came first
+// it would swallow `DELETE /bulk` too (treating "bulk" itself as the :id param, which then
+// fails against the uuid column with "invalid input syntax for type uuid").
 router.delete('/bulk', async (req, res) => {
   try {
     const { user, userClient } = await requireAdmin(req);
@@ -191,6 +167,13 @@ router.delete('/bulk', async (req, res) => {
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids must be a non-empty array.' });
+    }
+    // Same failure mode as the route-ordering bug above: a non-uuid string in `ids` (e.g. from a
+    // stale client build or a direct API call) would otherwise reach `.in('id', ids)` below and
+    // surface as a raw Postgres "invalid input syntax for type uuid" 500 instead of a clean 400.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!ids.every((id: unknown) => typeof id === 'string' && UUID_RE.test(id))) {
+      return res.status(400).json({ error: 'ids must all be valid uuids.' });
     }
 
     const { data: targets } = await userClient
@@ -227,6 +210,37 @@ router.delete('/bulk', async (req, res) => {
   } catch (error: any) {
     if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
     console.error('Error bulk deleting startups:', error);
+    return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const { user, userClient } = await requireAdmin(req);
+    const { id } = req.params;
+
+    const { data: currentStartup } = await userClient
+      .from('startups')
+      .select('company_name')
+      .eq('id', id)
+      .single();
+
+    const { error } = await userClient.from('startups').delete().eq('id', id);
+    if (error) throw error;
+
+    await logAuditEvent(userClient, {
+      user_id: user.id,
+      user_email: user.email,
+      action: 'Delete',
+      target_id: id,
+      target_name: currentStartup?.company_name || 'Startup',
+      details: { message: `Startup '${currentStartup?.company_name}' deleted by admin.` },
+    });
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    if (error instanceof AdminAuthError) return res.status(error.status).json({ error: error.message });
+    console.error('Error deleting startup:', error);
     return res.status(500).json({ error: error.message || 'An unexpected server error occurred.' });
   }
 });

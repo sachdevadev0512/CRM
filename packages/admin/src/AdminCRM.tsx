@@ -33,7 +33,8 @@ import {
   Ban
 } from 'lucide-react';
 import { Startup, AuditLog, PipelineStatus, Admin, AdminInvite } from '../../shared/src/types';
-import { getCurrencySymbol } from '../../shared/src/currency';
+import { getCurrencySymbol, formatAmount } from '../../shared/src/currency';
+import { formatDateTime } from '../../shared/src/dateTime';
 import { apiClient } from './apiClient';
 import StartupDetail from './StartupDetail';
 import AcceptAdminInvite from './AcceptAdminInvite';
@@ -473,6 +474,14 @@ export default function AdminCRM() {
     setBulkDeleteError('');
     try {
       await apiClient.deleteStartups(selectedStartupIds);
+      // If the detail drawer happens to be open on one of the rows we just deleted, close it --
+      // otherwise it keeps showing the now-gone startup from stale local state (fetchCRMData
+      // below only refreshes the table's `startups` array, it has no way to reach into the
+      // drawer's own prop), and any action taken inside it (status change, notes, assign) would
+      // then silently no-op against a row that no longer exists.
+      if (selectedStartup && selectedStartupIds.includes(selectedStartup.id)) {
+        setSelectedStartup(null);
+      }
       setSelectedStartupIds([]);
       setIsBulkDeleteConfirmOpen(false);
       await fetchCRMData();
@@ -503,8 +512,6 @@ export default function AdminCRM() {
         'Stage',
         'Currency',
         'Revenue Status',
-        'Revenue Generated in Financial Year 2024–25',
-        'Revenue Generated During Current Financial Year',
         'Funding Raised',
         'Target Raise',
         'Traction / Metrics',
@@ -527,8 +534,6 @@ export default function AdminCRM() {
         s.stage,
         s.currency || 'INR',
         s.revenue_status || 'Pre-Revenue',
-        s.revenue_generated_fy25 || '',
-        s.current_financial_year_revenue || '',
         s.funding_raised,
         s.target_raise,
         s.traction,
@@ -1501,7 +1506,7 @@ export default function AdminCRM() {
                             </div>
 
                             <div className="pt-2 border-t border-neutral-100 flex justify-between items-center text-[9px] font-mono text-neutral-400">
-                              <span>Raise: {getCurrencySymbol(s.currency)}{(s.target_raise || 0).toLocaleString()}</span>
+                              <span>Raise: {getCurrencySymbol(s.currency)}{formatAmount(s.target_raise, s.currency)}</span>
                             </div>
 
                             {/* Fast Move dropdown on hover */}
@@ -1594,7 +1599,7 @@ export default function AdminCRM() {
                           </span>
                         </td>
                         <td className="px-6 py-3 font-mono text-neutral-900 font-semibold">
-                          {getCurrencySymbol(s.currency)}{(s.target_raise || 0).toLocaleString()}
+                          {getCurrencySymbol(s.currency)}{formatAmount(s.target_raise, s.currency)}
                         </td>
                         <td className="px-6 py-3">
                           <span
@@ -1713,7 +1718,7 @@ export default function AdminCRM() {
                             <span className="font-mono text-neutral-500">{s.last_completed_step}/6</span>
                           </div>
                         </td>
-                        <td className="px-6 py-3 text-neutral-600">{new Date(s.updated_at).toLocaleString()}</td>
+                        <td className="px-6 py-3 text-neutral-600">{formatDateTime(s.updated_at)}</td>
                         <td className="px-6 py-3 text-right">
                           <button
                             onClick={(e) => { e.stopPropagation(); setSelectedStartup(s); }}

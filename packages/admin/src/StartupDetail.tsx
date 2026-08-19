@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, ExternalLink, Calendar, MapPin, Briefcase, User, Users, Landmark, TrendingUp, HelpCircle, Plus, Trash2, Send, Clock, RefreshCw, Phone } from 'lucide-react';
+import { X, ExternalLink, MapPin, User, Mail, Trash2, Send, RefreshCw, Phone } from 'lucide-react';
 import { Startup, Note, PipelineStatus, AuditLog, Admin } from '../../shared/src/types';
 import { apiClient } from './apiClient';
 import { safeHref } from '../../shared/src/securityUtils';
-import { getCurrencySymbol } from '../../shared/src/currency';
+import { getCurrencySymbol, formatAmount } from '../../shared/src/currency';
+import { formatDateTime } from '../../shared/src/dateTime';
 
 interface StartupDetailProps {
   startup: Startup;
@@ -19,6 +20,25 @@ interface StartupDetailProps {
   // current one) can be assigned. Fetched/owned by the parent, same as elsewhere in the app.
   adminsList: Admin[];
   onAssignAdmin: (adminId: string | null) => void;
+}
+
+// Groups the Overview tab by which of the public form's 6 steps actually collects each
+// field (see FormPortal.tsx STEPS[] and the STRING/NUMBER/BOOLEAN/URL_FIELDS allow-lists in
+// publicForm.ts) -- so an admin can see at a glance exactly where a value came from, instead
+// of guessing. Fields the current form never writes (funding_raised, team_size,
+// team_background, the free-text description/traction blobs) are called out separately
+// under "Legacy Fields" rather than mixed in as if they were live step data.
+function StepSectionHeader({ step, title }: { step: number; title: string }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-neutral-100 pb-1.5">
+      <span className="shrink-0 px-1.5 py-0.5 bg-neutral-900 text-white text-[9px] font-bold rounded font-mono tracking-wider">
+        STEP {step}
+      </span>
+      <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
+        {title}
+      </h3>
+    </div>
+  );
 }
 
 export default function StartupDetail({
@@ -293,28 +313,11 @@ export default function StartupDetail({
         <div className="flex-1 overflow-y-auto px-6 py-6" id="drawer-content">
           {activeTab === 'overview' ? (
             <div className="space-y-8 text-sm">
-              {/* Sector & HQ Location -- always relevant, shown regardless of submission format */}
-              <div className="flex flex-wrap gap-2">
-                {startup.sector && (
-                  <span className="px-2.5 py-1 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-700">
-                    {startup.sector === 'Other' && startup.sector_other ? startup.sector_other : startup.sector}
-                  </span>
-                )}
-                {startup.hq_location && (
-                  <span className="px-2.5 py-1 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-700 inline-flex items-center gap-1">
-                    <MapPin className="h-3 w-3 text-neutral-400" />
-                    {startup.hq_location}
-                  </span>
-                )}
-              </div>
-
-              {/* Submitted by -- the person who filled out the form, who may not be the founder
-                  (e.g. an investment banker or mentor applying on the startup's behalf). */}
+              {/* STEP 1 -- About You (the submitter, who may not be the founder -- e.g. an
+                  investment banker or mentor applying on the startup's behalf). */}
               {(startup.submitter_name || startup.submitter_email) && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
-                    Submitted By
-                  </h3>
+                <div className="space-y-3">
+                  <StepSectionHeader step={1} title="About You" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/50 p-4 rounded-xl">
                     <div><span className="text-neutral-400">Name:</span> <span className="font-medium text-neutral-900">{startup.submitter_name || '—'}</span></div>
                     <div><span className="text-neutral-400">Role:</span> <span className="font-medium text-neutral-900">{startup.submitter_role || '—'}</span></div>
@@ -327,28 +330,147 @@ export default function StartupDetail({
                 </div>
               )}
 
-              {/* One liner & description */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
-                  Pitch & Executive Summary
-                </h3>
+              {/* STEP 2 -- Startup Basics. company_name/website are already shown in the drawer
+                  header, so they aren't repeated here. */}
+              <div className="space-y-3">
+                <StepSectionHeader step={2} title="Startup Basics" />
+                <div className="flex flex-wrap gap-2">
+                  {startup.sector && (
+                    <span className="px-2.5 py-1 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-700">
+                      {startup.sector === 'Other' && startup.sector_other ? startup.sector_other : startup.sector}
+                    </span>
+                  )}
+                  {startup.hq_location && (
+                    <span className="px-2.5 py-1 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-700 inline-flex items-center gap-1">
+                      <MapPin className="h-3 w-3 text-neutral-400" />
+                      {startup.hq_location}
+                    </span>
+                  )}
+                </div>
                 <p className="font-medium text-neutral-900 text-base leading-relaxed break-words">
-                  {startup.one_line_pitch || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}
+                  {startup.one_line_pitch || <span className="text-neutral-400 italic font-normal">One-liner not yet provided</span>}
                 </p>
-                {!startup.problem_statement && startup.description && (
-                  <p className="text-neutral-600 leading-relaxed break-words bg-neutral-50 border border-neutral-200/50 p-4 rounded-xl mt-3">
-                    {startup.description}
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <User className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900">{startup.founder_name || '—'}</p>
+                      <p className="text-[10px] text-neutral-400">Primary Founder</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <Phone className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900">{startup.founder_phone || '—'}</p>
+                      <p className="text-[10px] text-neutral-400">Founder Phone</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg min-w-0">
+                    <Mail className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-neutral-900 truncate">{startup.founder_email || '—'}</p>
+                      <p className="text-[10px] text-neutral-400">Founder Email</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
+                    <ExternalLink className="h-4 w-4 text-neutral-400 shrink-0" />
+                    <div>
+                      {startup.founder_linkedin ? (
+                        <a
+                          href={safeHref(startup.founder_linkedin)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-neutral-900 hover:underline inline-flex items-center gap-1"
+                        >
+                          LinkedIn Profile
+                        </a>
+                      ) : (
+                        <span className="font-medium text-neutral-400">Not Provided</span>
+                      )}
+                      <p className="text-[10px] text-neutral-400">Founder Profile</p>
+                    </div>
+                  </div>
+                  {startup.company_linkedin && (
+                    <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg sm:col-span-2">
+                      <ExternalLink className="h-4 w-4 text-neutral-400 shrink-0" />
+                      <div>
+                        <a
+                          href={safeHref(startup.company_linkedin)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-neutral-900 hover:underline inline-flex items-center gap-1"
+                        >
+                          LinkedIn Profile
+                        </a>
+                        <p className="text-[10px] text-neutral-400">Startup Profile</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* STEP 3 -- Stage & Funding. "Revenue Status" (shown separately here in an earlier
+                  version of this drawer) is intentionally not repeated -- it's just a server-side
+                  mirror of the Stage value right below (see publicForm.ts), so showing both next
+                  to each other was a pure duplicate. */}
+              <div className="space-y-3">
+                <StepSectionHeader step={3} title="Stage & Funding" />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
+                  <div className="space-y-1 min-w-0">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                      TARGET RAISE
+                    </span>
+                    <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                      {currencySymbol}{formatAmount(startup.target_raise, startup.currency)}
+                    </span>
+                  </div>
+                  <div className="space-y-1 min-w-0 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                      STAGE
+                    </span>
+                    <span className="text-base font-semibold text-neutral-900 break-words">
+                      {startup.stage || '—'}
+                    </span>
+                  </div>
+                  {startup.current_valuation != null && (
+                    <div className="space-y-1 min-w-0 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
+                        CURRENT VALUATION
+                      </span>
+                      <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                        {currencySymbol}{formatAmount(startup.current_valuation, startup.currency)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {startup.raised_before && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
+                    <div className="space-y-1 min-w-0">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND RAISED</span>
+                      <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                        {startup.previous_round_amount != null ? `${currencySymbol}${formatAmount(startup.previous_round_amount, startup.currency)}` : '—'}
+                      </span>
+                    </div>
+                    <div className="space-y-1 min-w-0 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND VALUATION</span>
+                      <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                        {startup.previous_round_valuation != null ? `${currencySymbol}${formatAmount(startup.previous_round_valuation, startup.currency)}` : '—'}
+                      </span>
+                    </div>
+                    <div className="space-y-1 min-w-0 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">MONTH & YEAR</span>
+                      <span className="text-base font-semibold text-neutral-900 break-words">{startup.previous_round_date || '—'}</span>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* Structured business fields (new-format submissions) -- legacy rows fall back to
-                  the free-text `description` blob above instead. */}
+              {/* STEP 4 -- The Business. Legacy rows (pre-multi-step form) that only have the old
+                  free-text `description` blob instead are shown under Legacy Fields below. */}
               {(startup.problem_statement || startup.proposed_solution || startup.target_audience || startup.revenue_model) && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                    The Business
-                  </h3>
+                  <StepSectionHeader step={4} title="The Business" />
                   {startup.problem_statement && (
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Problem Statement</span>
@@ -376,274 +498,149 @@ export default function StartupDetail({
                 </div>
               )}
 
-              {/* Financials & Raising Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                    TARGET RAISE
-                  </span>
-                  <span className="text-base font-semibold text-neutral-900 font-mono">
-                    {currencySymbol}{Number(startup.target_raise || 0).toLocaleString()}
-                  </span>
-                </div>
-                <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                    PRIOR CAPITAL
-                  </span>
-                  <span className="text-base font-semibold text-neutral-900 font-mono">
-                    {startup.funding_raised ? `${currencySymbol}${Number(startup.funding_raised).toLocaleString()}` : 'Nil'}
-                  </span>
-                </div>
-                <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                    STAGE
-                  </span>
-                  <span className="text-base font-semibold text-neutral-900">
-                    {startup.stage || '—'}
-                  </span>
-                </div>
-                {startup.current_valuation != null && (
-                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                      CURRENT VALUATION
-                    </span>
-                    <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {currencySymbol}{Number(startup.current_valuation).toLocaleString()}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Previous funding round (new-format submissions only) */}
-              {startup.raised_before && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND RAISED</span>
-                    <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.previous_round_amount != null ? `${currencySymbol}${Number(startup.previous_round_amount).toLocaleString()}` : '—'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">PREVIOUS ROUND VALUATION</span>
-                    <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.previous_round_valuation != null ? `${currencySymbol}${Number(startup.previous_round_valuation).toLocaleString()}` : '—'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">MONTH & YEAR</span>
-                    <span className="text-base font-semibold text-neutral-900">{startup.previous_round_date || '—'}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Revenue & Financial Status */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
-                  Revenue & Financial Status
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                      REVENUE STATUS
-                    </span>
-                    <span className="text-sm font-semibold text-neutral-900">
-                      {startup.revenue_status || 'Pre-Revenue'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                      REVENUE Generated in FY 2024–25
-                    </span>
-                    <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.revenue_status === 'Revenue Generating' && startup.revenue_generated_fy25
-                        ? `${currencySymbol}${Number(startup.revenue_generated_fy25).toLocaleString()}`
-                        : 'Pre-Revenue'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 border-t sm:border-t-0 sm:border-l border-neutral-150 pt-3 sm:pt-0 sm:pl-4">
-                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">
-                      FY REVENUE
-                    </span>
-                    <span className="text-base font-semibold text-neutral-900 font-mono">
-                      {startup.current_financial_year_revenue 
-                        ? `${currencySymbol}${Number(startup.current_financial_year_revenue).toLocaleString()}`
-                        : `${currencySymbol}0`}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Founder profile info */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                  Founding Team Contacts
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                    <User className="h-4 w-4 text-neutral-400 shrink-0" />
-                    <div>
-                      <p className="font-medium text-neutral-900">{startup.founder_name || '—'}</p>
-                      <p className="text-[10px] text-neutral-400">Primary Founder</p>
-                    </div>
-                  </div>
-                  {startup.founder_phone ? (
-                    <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                      <Phone className="h-4 w-4 text-neutral-400 shrink-0" />
-                      <div>
-                        <p className="font-medium text-neutral-900">{startup.founder_phone}</p>
-                        <p className="text-[10px] text-neutral-400">Founder Phone</p>
-                      </div>
-                    </div>
-                  ) : startup.team_size != null && (
-                    <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                      <Users className="h-4 w-4 text-neutral-400 shrink-0" />
-                      <div>
-                        <p className="font-medium text-neutral-900">Size: {startup.team_size} FTE</p>
-                        <p className="text-[10px] text-neutral-400">Company Size</p>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                    <Clock className="h-4 w-4 text-neutral-400 shrink-0" />
-                    <div>
-                      <p className="font-medium text-neutral-900 truncate">{startup.founder_email || '—'}</p>
-                      <p className="text-[10px] text-neutral-400">Founder Email</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                    <ExternalLink className="h-4 w-4 text-neutral-400 shrink-0" />
-                    <div>
-                      {startup.founder_linkedin ? (
-                        <a
-                          href={safeHref(startup.founder_linkedin)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium text-neutral-900 hover:underline inline-flex items-center gap-1"
-                        >
-                          LinkedIn Profile
-                        </a>
-                      ) : (
-                        <span className="font-medium text-neutral-400">Not Provided</span>
-                      )}
-                      <p className="text-[10px] text-neutral-400">Founder Profile</p>
-                    </div>
-                  </div>
-                  {startup.company_linkedin && (
-                    <div className="flex gap-2 items-center text-xs text-neutral-600 bg-neutral-50 border border-neutral-200/40 px-3 py-2 rounded-lg">
-                      <ExternalLink className="h-4 w-4 text-neutral-400 shrink-0" />
-                      <div>
-                        <a
-                          href={safeHref(startup.company_linkedin)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium text-neutral-900 hover:underline inline-flex items-center gap-1"
-                        >
-                          LinkedIn Profile
-                        </a>
-                        <p className="text-[10px] text-neutral-400">Startup Profile</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {startup.team_background && (
-                  <div className="space-y-1 mt-2">
-                    <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest font-mono">
-                      Team Background & Pedigree
-                    </span>
-                    <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words pl-1 border-l-2 border-neutral-200">
-                      {startup.team_background}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Traction section: structured fields for new-format submissions, falling back to
-                  the old free-text blob for legacy rows. */}
+              {/* STEP 5 -- Traction & Financials. A legacy row with only the old free-text
+                  `traction` blob (no structured fields) is shown under Legacy Fields instead. */}
               {(startup.current_customers != null || startup.monthly_burn != null ||
-                startup.revenue_fy_2425 != null || startup.revenue_fy_2526 != null || startup.revenue_fy_2627 != null) ? (
+                startup.revenue_fy_2425 != null || startup.revenue_fy_2526 != null || startup.revenue_fy_2627 != null) && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                    Metrics & Traction
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30">
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">CUSTOMERS</span>
-                      <span className="text-base font-semibold text-neutral-900 font-mono">{startup.current_customers ?? '—'}</span>
+                  <StepSectionHeader step={5} title="Traction & Financials" />
+                  <div className="border border-neutral-200/60 rounded-xl p-4 bg-neutral-50/30 space-y-3">
+                    {/* Customers/burn are short values -- 2 columns is plenty of room */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1 min-w-0">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">CUSTOMERS</span>
+                        <span className="text-base font-semibold text-neutral-900 font-mono break-words">{startup.current_customers ?? '—'}</span>
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">BURN / MO</span>
+                        <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                          {startup.monthly_burn != null ? `${currencySymbol}${formatAmount(startup.monthly_burn, startup.currency)}` : '—'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">BURN / MO</span>
-                      <span className="text-base font-semibold text-neutral-900 font-mono">
-                        {startup.monthly_burn != null ? `${currencySymbol}${Number(startup.monthly_burn).toLocaleString()}` : '—'}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 24–25</span>
-                      <span className="text-base font-semibold text-neutral-900 font-mono">
-                        {startup.revenue_fy_2425 != null ? `${currencySymbol}${Number(startup.revenue_fy_2425).toLocaleString()}` : '—'}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 25–26</span>
-                      <span className="text-base font-semibold text-neutral-900 font-mono">
-                        {startup.revenue_fy_2526 != null ? `${currencySymbol}${Number(startup.revenue_fy_2526).toLocaleString()}` : '—'}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 26–27</span>
-                      <span className="text-base font-semibold text-neutral-900 font-mono">
-                        {startup.revenue_fy_2627 != null ? `${currencySymbol}${Number(startup.revenue_fy_2627).toLocaleString()}` : '—'}
-                      </span>
+                    {/* FY revenue values can run long (crore-scale INR amounts) -- these get their
+                        own row of only 3 columns, plus break-words, so a long number wraps onto a
+                        second line inside its own cell instead of visually bleeding into the next
+                        column (grid cells don't wrap unbroken text like a bare number on their own). */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-neutral-150">
+                      <div className="space-y-1 min-w-0">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 24–25</span>
+                        <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                          {startup.revenue_fy_2425 != null ? `${currencySymbol}${formatAmount(startup.revenue_fy_2425, startup.currency)}` : '—'}
+                        </span>
+                      </div>
+                      <div className="space-y-1 min-w-0 sm:border-l border-neutral-150 sm:pl-4">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 25–26</span>
+                        <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                          {startup.revenue_fy_2526 != null ? `${currencySymbol}${formatAmount(startup.revenue_fy_2526, startup.currency)}` : '—'}
+                        </span>
+                      </div>
+                      <div className="space-y-1 min-w-0 sm:border-l border-neutral-150 sm:pl-4">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">FY 26–27</span>
+                        <span className="text-base font-semibold text-neutral-900 font-mono break-words">
+                          {startup.revenue_fy_2627 != null ? `${currencySymbol}${formatAmount(startup.revenue_fy_2627, startup.currency)}` : '—'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ) : startup.traction && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                    Metrics & Traction
-                  </h3>
-                  <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-4 rounded-xl">
-                    {startup.traction}
-                  </p>
+              )}
+
+              {/* STEP 6 -- Pitch Deck & Declaration */}
+              {(startup.pitch_deck_link || startup.demo_video || startup.declaration_accepted) && (
+                <div className="space-y-3">
+                  <StepSectionHeader step={6} title="Pitch Deck & Declaration" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {startup.pitch_deck_link && (
+                      <a
+                        href={safeHref(startup.pitch_deck_link)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-neutral-700 hover:text-neutral-900 font-medium border border-neutral-200 hover:border-neutral-300 px-4 py-2 bg-white hover:bg-neutral-50 rounded-lg shadow-2xs"
+                      >
+                        Open Pitch Deck
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                    {startup.demo_video && (
+                      <a
+                        href={safeHref(startup.demo_video)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-neutral-700 hover:text-neutral-900 font-medium border border-neutral-200 hover:border-neutral-300 px-4 py-2 bg-white hover:bg-neutral-50 rounded-lg shadow-2xs"
+                      >
+                        {startup.pitch_deck_link ? 'Open Additional Material' : 'Watch Product Demo'}
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                    <span
+                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border ${
+                        startup.declaration_accepted
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-neutral-50 border-neutral-200 text-neutral-400'
+                      }`}
+                    >
+                      {startup.declaration_accepted ? '✓ Declaration Accepted' : 'Declaration Not Confirmed'}
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {/* Pitch deck link (new-format submissions) */}
-              {startup.pitch_deck_link && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                    Pitch Deck
-                  </h3>
-                  <a
-                    href={safeHref(startup.pitch_deck_link)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-neutral-700 hover:text-neutral-900 font-medium border border-neutral-200 hover:border-neutral-300 px-4 py-2 bg-white hover:bg-neutral-50 rounded-lg shadow-2xs"
-                  >
-                    Open Pitch Deck
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+              {/* Legacy Fields -- everything below predates the current 6-step form and is never
+                  written by it (see the STRING/NUMBER/BOOLEAN/URL_FIELDS allow-lists in
+                  publicForm.ts). Only rendered when a legacy row actually has one of these set,
+                  so any application submitted through the current form never shows this at all. */}
+              {(startup.funding_raised > 0 || startup.team_size != null || startup.team_background ||
+                (!startup.problem_statement && startup.description) ||
+                (!(startup.current_customers != null || startup.monthly_burn != null ||
+                    startup.revenue_fy_2425 != null || startup.revenue_fy_2526 != null || startup.revenue_fy_2627 != null) && startup.traction)) && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 border-b border-neutral-100 pb-1.5">
+                    <span className="shrink-0 px-1.5 py-0.5 bg-neutral-200 text-neutral-500 text-[9px] font-bold rounded font-mono tracking-wider">
+                      LEGACY
+                    </span>
+                    <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono">
+                      Additional Info (Not Collected By Current Form)
+                    </h3>
+                  </div>
+
+                  {startup.funding_raised > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Prior Capital Raised</span>
+                      <p className="text-neutral-900 text-sm font-semibold font-mono">{currencySymbol}{formatAmount(startup.funding_raised, startup.currency)}</p>
+                    </div>
+                  )}
+
+                  {startup.team_size != null && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Team Size</span>
+                      <p className="text-neutral-900 text-sm font-semibold">{startup.team_size} FTE</p>
+                    </div>
+                  )}
+
+                  {startup.team_background && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Team Background & Pedigree</span>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.team_background}</p>
+                    </div>
+                  )}
+
+                  {!startup.problem_statement && startup.description && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Description</span>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.description}</p>
+                    </div>
+                  )}
+
+                  {!(startup.current_customers != null || startup.monthly_burn != null ||
+                    startup.revenue_fy_2425 != null || startup.revenue_fy_2526 != null || startup.revenue_fy_2627 != null) && startup.traction && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block font-mono">Traction</span>
+                      <p className="text-neutral-600 text-sm leading-relaxed whitespace-pre-wrap break-words bg-neutral-50 border border-neutral-200/40 p-3 rounded-lg">{startup.traction}</p>
+                    </div>
+                  )}
                 </div>
               )}
-
-              {/* Additional material link (demo video / data room / one-pager, etc.) */}
-              {startup.demo_video && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-widest font-mono border-b border-neutral-100 pb-1">
-                    {startup.pitch_deck_link ? 'Additional Material' : 'Product Walkthrough'}
-                  </h3>
-                  <a
-                    href={safeHref(startup.demo_video)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-neutral-700 hover:text-neutral-900 font-medium border border-neutral-200 hover:border-neutral-300 px-4 py-2 bg-white hover:bg-neutral-50 rounded-lg shadow-2xs"
-                  >
-                    {startup.pitch_deck_link ? 'Open Additional Material' : 'Watch Product Demo'}
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                </div>
-              )}
-
             </div>
           ) : (
             <div className="space-y-6">
@@ -749,7 +746,7 @@ export default function StartupDetail({
                                     {item.note.author_email}
                                   </span>
                                   <span className="text-[10px] font-mono text-neutral-400">
-                                    {new Date(item.note.created_at).toLocaleString()}
+                                    {formatDateTime(item.note.created_at)}
                                   </span>
                                 </div>
 
@@ -775,7 +772,7 @@ export default function StartupDetail({
                                   {item.log.user_email || 'System'} changed the status
                                 </span>
                                 <span className="text-[10px] font-mono text-neutral-400 shrink-0 ml-2">
-                                  {new Date(item.log.created_at).toLocaleString()}
+                                  {formatDateTime(item.log.created_at)}
                                 </span>
                               </div>
                               <p className="text-xs text-violet-700 font-mono">

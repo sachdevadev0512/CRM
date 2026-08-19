@@ -7,6 +7,7 @@ import {
 import { apiClient } from './apiClient';
 import { isValidHttpUrl, validateLinkedInUrl } from '../../shared/src/securityUtils';
 import { getCurrencySymbol } from '../../shared/src/currency';
+import { formatDateTime } from '../../shared/src/dateTime';
 import { ApplicationStepData } from '../../shared/src/types';
 
 const DRAFT_STORAGE_KEY = 'mv_application_draft';
@@ -412,6 +413,7 @@ export default function FormPortal() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [submittedId, setSubmittedId] = useState('');
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
 
   // Set when step 1's save is rejected because this email already has an application on file --
   // 'existingDraft' auto-opens the resume panel below (see handleAdvance); 'alreadySubmitted'
@@ -855,11 +857,12 @@ export default function FormPortal() {
     setTurnstileToken('');
     setStep1Block(null);
     closeResumePanel();
-    // Without these two, "Apply for Another Company" (which calls resetAll from the success
+    // Without these, "Apply for Another Company" (which calls resetAll from the success
     // screen) left isSuccess/submittedId set, so the early `if (isSuccess)` return above kept
     // rendering the same success screen forever no matter what else got reset.
     setIsSuccess(false);
     setSubmittedId('');
+    setSubmittedAt(null);
   };
 
   const openResumePanel = (prefillEmail = '') => {
@@ -1124,6 +1127,7 @@ export default function FormPortal() {
         }
         clearDraftStorage();
         setSubmittedId(newId);
+        setSubmittedAt(new Date());
         setIsSuccess(true);
       } else {
         const nextStep = currentStep + 1;
@@ -1171,7 +1175,7 @@ export default function FormPortal() {
             </div>
             <div className="flex justify-between">
               <span>SUBMISSION DATE & TIME:</span>
-              <span className="font-semibold text-neutral-900">{new Date().toLocaleString()}</span>
+              <span className="font-semibold text-neutral-900">{submittedAt ? formatDateTime(submittedAt) : '—'}</span>
             </div>
           </div>
 
