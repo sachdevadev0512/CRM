@@ -239,11 +239,11 @@ export default function StartupDetail({
           </div>
         </div>
 
-        {/* Analysis assignment -- any admin (including yourself) can own reviewing this
-            application. Writes immediately on change, mirroring the "Analysis" column
+        {/* Analyst assignment -- any admin (including yourself) can own reviewing this
+            application. Writes immediately on change, mirroring the "Analyst" column
             dropdown in the Deal Table (same handler on the parent). */}
         <div className="px-6 py-3 border-b border-neutral-100 flex items-center gap-2">
-          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Analysis:</span>
+          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Analyst:</span>
           <select
             value={startup.assigned_admin_id || ''}
             onChange={(e) => onAssignAdmin(e.target.value || null)}

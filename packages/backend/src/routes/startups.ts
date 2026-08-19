@@ -86,7 +86,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // Assigns (or unassigns, with admin_id: null) the admin responsible for reviewing/analyzing
-// this application -- the "Analysis" column in the Deal Table and the drawer's assignment
+// this application -- the "Analyst" column in the Deal Table and the drawer's assignment
 // dropdown both call this. Any admin can assign themselves or a colleague; there is no
 // ownership restriction, matching the "Admin update startups" RLS policy this relies on.
 router.patch('/:id/assign', async (req, res) => {

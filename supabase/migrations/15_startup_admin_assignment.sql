@@ -1,4 +1,4 @@
--- Adds a per-application "assigned admin" (analysis owner) so any admin can assign
+-- Adds a per-application "assigned admin" (analyst) so any admin can assign
 -- themselves or a colleague to review a specific startup. Nullable -- an application
 -- can sit unassigned. ON DELETE SET NULL so revoking an admin (see admins.ts /
 -- 07_critical_security_fixes.sql) never blocks on, or cascades into deleting, the

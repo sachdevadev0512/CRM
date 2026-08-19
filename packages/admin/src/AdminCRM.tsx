@@ -85,7 +85,7 @@ const normalizeAuditLogs = (logs: AuditLog[]): BusinessAuditEntry[] => {
       continue;
     }
     
-    // 2a. Admin Assigned -- the "Analysis" column / drawer dropdown assignment.
+    // 2a. Admin Assigned -- the "Analyst" column / drawer dropdown assignment.
     if (act.includes('assigned admin') || act.includes('admin assigned')) {
       const oldAdmin = details.old_admin || 'Unassigned';
       const newAdmin = details.new_admin || 'Unassigned';
@@ -782,8 +782,8 @@ export default function AdminCRM() {
     setStatusNoteText('');
   };
 
-  // Analysis-owner assignment -- lets any admin assign themselves or a colleague to a
-  // given application, from either the Deal Table's "Analysis" column or the drawer.
+  // Analyst assignment -- lets any admin assign themselves or a colleague to a
+  // given application, from either the Deal Table's "Analyst" column or the drawer.
   // Unlike status changes, this writes immediately (no confirmation modal) since it's
   // low-stakes and fully reversible by picking a different admin or "Unassigned".
   const handleAssignAdmin = async (id: string, adminId: string | null) => {
@@ -1300,7 +1300,7 @@ export default function AdminCRM() {
 
       {/* Merged Navigation and Filtering Toolbar */}
       <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-3xs space-y-4">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+        <div className="flex flex-col lg:flex-row lg:flex-wrap justify-between items-start lg:items-center gap-4">
           {/* Tabs */}
           <div className="flex flex-wrap gap-1 bg-neutral-50 border border-neutral-200 p-1 rounded-lg text-xs w-full lg:w-auto shrink-0">
             <button
@@ -1362,7 +1362,7 @@ export default function AdminCRM() {
 
           {/* Filtering options - Only shown for Pipeline, Table & Drafts */}
           {(activeTab === 'pipeline' || activeTab === 'table' || activeTab === 'drafts') && (
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 w-full lg:w-auto lg:flex lg:items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 w-full lg:w-auto lg:flex lg:flex-wrap lg:items-center">
               {/* Search bar */}
               <div className="relative lg:w-64">
                 <Search className="absolute left-3 top-2 h-3.5 w-3.5 text-neutral-400" />
@@ -1554,7 +1554,7 @@ export default function AdminCRM() {
                       Target Raise {sortBy === 'raise' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Analysis</th>
+                    <th className="px-6 py-3">Analyst</th>
                     <th className="px-6 py-3 cursor-pointer hover:bg-neutral-100" onClick={() => toggleSort('date')}>
                       Applied On {sortBy === 'date' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
