@@ -498,6 +498,7 @@ export default function AdminCRM() {
     setIsExporting(true);
     try {
       const headers = [
+        'Application ID',
         'Company Name',
         'Website',
         'One Line Pitch',
@@ -520,6 +521,7 @@ export default function AdminCRM() {
       ];
 
       const rows = startupsToExport.map(s => [
+        s.application_id,
         s.company_name,
         s.website,
         s.one_line_pitch,
@@ -924,6 +926,7 @@ export default function AdminCRM() {
   // Filtering Logic
   const filteredStartups = reviewableStartups.filter(s => {
     const matchesSearch =
+      (s.application_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.company_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.one_line_pitch || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.founder_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -939,6 +942,7 @@ export default function AdminCRM() {
   // Drafts tab: same search box, no sector/stage filters (many of those fields may not be
   // filled in yet on an in-progress application).
   const filteredDraftStartups = draftStartups.filter(s =>
+    (s.application_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (s.company_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (s.submitter_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (s.submitter_email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1488,8 +1492,9 @@ export default function AdminCRM() {
                               <span className="font-semibold text-neutral-900 group-hover:underline line-clamp-1">
                                 {s.company_name}
                               </span>
+                              <span className="shrink-0 text-[9px] font-mono text-neutral-400">{s.application_id}</span>
                             </div>
-                            
+
                             {showPitch && (
                               <p className="text-neutral-500 text-[10px] leading-snug line-clamp-2">
                                 {s.one_line_pitch}
@@ -1549,6 +1554,7 @@ export default function AdminCRM() {
                         className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer h-3.5 w-3.5"
                       />
                     </th>
+                    <th className="px-6 py-3">App ID</th>
                     <th className="px-6 py-3 cursor-pointer hover:bg-neutral-100" onClick={() => toggleSort('name')}>
                       Company Name {sortBy === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
@@ -1569,7 +1575,7 @@ export default function AdminCRM() {
                 <tbody className="divide-y divide-neutral-150">
                   {sortedStartups.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-16 text-neutral-400 font-mono">
+                      <td colSpan={11} className="text-center py-16 text-neutral-400 font-mono">
                         No database records matched your active search and filter presets.
                       </td>
                     </tr>
@@ -1588,6 +1594,7 @@ export default function AdminCRM() {
                             className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer h-3.5 w-3.5"
                           />
                         </td>
+                        <td className="px-6 py-3 font-mono text-neutral-500 whitespace-nowrap">{s.application_id}</td>
                         <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[320px]">
                           <div className="truncate" title={s.company_name || undefined}>{s.company_name}</div>
                         </td>
@@ -1677,6 +1684,7 @@ export default function AdminCRM() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-neutral-50 border-b border-neutral-250 text-neutral-500 font-semibold uppercase tracking-wider font-mono">
+                    <th className="px-6 py-3">App ID</th>
                     <th className="px-6 py-3">Company Name</th>
                     <th className="px-6 py-3">Submitted By</th>
                     <th className="px-6 py-3">Progress</th>
@@ -1687,7 +1695,7 @@ export default function AdminCRM() {
                 <tbody className="divide-y divide-neutral-150">
                   {sortedDraftStartups.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-16 text-neutral-400 font-mono">
+                      <td colSpan={6} className="text-center py-16 text-neutral-400 font-mono">
                         No applications currently in progress.
                       </td>
                     </tr>
@@ -1698,6 +1706,7 @@ export default function AdminCRM() {
                         onClick={() => setSelectedStartup(s)}
                         className="hover:bg-neutral-50/50 cursor-pointer group text-left"
                       >
+                        <td className="px-6 py-3 font-mono text-neutral-500 whitespace-nowrap">{s.application_id}</td>
                         <td className="px-6 py-3 font-semibold text-neutral-900 group-hover:underline max-w-[320px]">
                           <div className="truncate" title={s.company_name || undefined}>
                             {s.company_name || <span className="text-neutral-400 italic font-normal">Not yet provided</span>}

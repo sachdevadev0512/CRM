@@ -15,7 +15,7 @@ const PIPELINE_STATUSES: PipelineStatus[] = ['New', 'Screening', 'Meeting', 'Due
 // public API. The `Startup` type in shared/src/types.ts never declares these fields either, so
 // nothing in the admin UI needs them.
 const ADMIN_STARTUP_COLUMNS = [
-  'id', 'company_name', 'website', 'one_line_pitch', 'description', 'hq_location', 'sector',
+  'id', 'application_id', 'company_name', 'website', 'one_line_pitch', 'description', 'hq_location', 'sector',
   'founder_name', 'founder_email', 'founder_linkedin', 'team_size', 'team_background', 'stage',
   'funding_raised', 'target_raise', 'traction', 'pitch_deck_path', 'demo_video', 'status',
   'currency', 'revenue_status', 'revenue_generated_fy25', 'current_financial_year_revenue',

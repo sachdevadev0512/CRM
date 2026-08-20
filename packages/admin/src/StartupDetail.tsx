@@ -185,6 +185,7 @@ export default function StartupDetail({
         {/* Drawer Header */}
         <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
           <div>
+            <span className="text-[10px] font-mono font-semibold text-neutral-400 tracking-wider">{startup.application_id}</span>
             <h2 className="text-xl font-semibold text-neutral-900 tracking-tight flex items-center gap-2 mt-0.5 min-w-0">
               <span className="break-words">
                 {startup.company_name || <span className="text-neutral-400 italic font-normal">Company name not yet provided</span>}
