@@ -195,6 +195,11 @@ export interface ApplicationStepRequest {
 export interface ApplicationStepResponse {
   success: boolean;
   id?: string;
+  // Human-readable sequential ID (MV0001, ...) -- only meaningful/present once the row exists,
+  // i.e. from the very first step-1 save onward. Shown to the applicant on the success screen
+  // instead of `id` (a raw UUID); `id`/`draftToken` remain internal, used only to PATCH
+  // subsequent steps and resume a draft.
+  application_id?: string;
   draftToken?: string;
   error?: string;
   // Set on a step-1 (first save) rejection so the client can react specifically instead of
@@ -212,6 +217,7 @@ export interface VerifyResumeOtpResponse {
   success: boolean;
   error?: string;
   id?: string;
+  application_id?: string;
   draftToken?: string;
   currentStep?: number; // last_completed_step
   data?: ApplicationStepData;

@@ -177,7 +177,7 @@ function pickResumableFields(row: Record<string, any>): ApplicationStepData {
 
 type ExistingApplicationResolution =
   | { kind: 'none' }
-  | { kind: 'silentResume'; id: string; draftToken: string; lastCompletedStep: number }
+  | { kind: 'silentResume'; id: string; application_id: string; draftToken: string; lastCompletedStep: number }
   | { kind: 'conflict'; response: { success: false; existingDraftFound?: true; alreadySubmitted?: true; error: string } };
 
 // One-application-per-email check used by the step-1 create branch, both before the INSERT (fast
@@ -194,7 +194,7 @@ type ExistingApplicationResolution =
 async function resolveExistingApplication(client: ReturnType<typeof getAdminSupabase>, submitterEmail: string): Promise<ExistingApplicationResolution> {
   const { data: existingRows, error: existingError } = await client
     .from('startups')
-    .select('id, draft_token, status, last_completed_step')
+    .select('id, application_id, draft_token, status, last_completed_step')
     .ilike('submitter_email', escapeIlike(submitterEmail))
     .order('updated_at', { ascending: false })
     .limit(1);
@@ -204,7 +204,13 @@ async function resolveExistingApplication(client: ReturnType<typeof getAdminSupa
   const existing = existingRows[0];
   if (existing.status === 'In Progress') {
     if ((existing.last_completed_step || 0) <= 1) {
-      return { kind: 'silentResume', id: existing.id, draftToken: existing.draft_token, lastCompletedStep: existing.last_completed_step || 0 };
+      return {
+        kind: 'silentResume',
+        id: existing.id,
+        application_id: existing.application_id,
+        draftToken: existing.draft_token,
+        lastCompletedStep: existing.last_completed_step || 0,
+      };
     }
     return {
       kind: 'conflict',
@@ -299,7 +305,7 @@ router.post('/application/step', async (req, res) => {
             console.error('Silent step-1 resume update failed:', resumeError);
             return res.status(500).json({ success: false, error: 'Your progress could not be saved. Please check the fields and try again.' });
           }
-          return res.json({ success: true, id: resolution.id, draftToken: resolution.draftToken });
+          return res.json({ success: true, id: resolution.id, application_id: resolution.application_id, draftToken: resolution.draftToken });
         }
       }
 
@@ -314,7 +320,14 @@ router.post('/application/step', async (req, res) => {
         last_completed_step: stepNum,
       };
 
-      const { error: insertError } = await adminClientForCreate.from('startups').insert(insertPayload);
+      // .select('application_id') round-trips the DB-generated MV#### value (see
+      // 16_application_number.sql) in the same request, rather than needing a second query --
+      // it's a GENERATED column, so it doesn't exist until Postgres computes it on insert.
+      const { data: insertedRow, error: insertError } = await adminClientForCreate
+        .from('startups')
+        .insert(insertPayload)
+        .select('application_id')
+        .single();
       if (insertError) {
         console.error('Draft insert failed:', insertError);
         if (insertError.code === '23505' && insertError.message?.includes('submitter_email')) {
@@ -333,7 +346,7 @@ router.post('/application/step', async (req, res) => {
               console.error('Silent step-1 resume update failed (post-race):', resumeError);
               return res.status(500).json({ success: false, error: 'Your progress could not be saved. Please check the fields and try again.' });
             }
-            return res.json({ success: true, id: resolution.id, draftToken: resolution.draftToken });
+            return res.json({ success: true, id: resolution.id, application_id: resolution.application_id, draftToken: resolution.draftToken });
           }
           return res.status(409).json(
             resolution.kind === 'conflict' ? resolution.response : { success: false, error: 'An application with this email is already on file.' }
@@ -345,7 +358,7 @@ router.post('/application/step', async (req, res) => {
         return res.status(500).json({ success: false, error: 'Your progress could not be saved. Please check the fields and try again.' });
       }
 
-      return res.json({ success: true, id: newId, draftToken: newDraftToken });
+      return res.json({ success: true, id: newId, application_id: insertedRow?.application_id, draftToken: newDraftToken });
     }
 
     // ---- Updating an existing draft ----
@@ -416,7 +429,7 @@ router.post('/application/step', async (req, res) => {
     // The 'tr_log_startup_completion' AFTER UPDATE database trigger logs the final submission to
     // audit_logs automatically once status flips to 'New' -- no application-side write needed.
 
-    return res.json({ success: true, id, draftToken });
+    return res.json({ success: true, id, application_id: existing.application_id, draftToken });
   } catch (error: any) {
     console.error('Error in application/step:', error);
     return res.status(500).json({ success: false, error: error.message || 'An unexpected server error occurred.' });
@@ -577,6 +590,7 @@ router.post('/application/resume/verify-otp', async (req, res) => {
     return res.json({
       success: true,
       id: row.id,
+      application_id: row.application_id,
       draftToken: row.draft_token,
       currentStep: row.last_completed_step,
       data: pickResumableFields(row),

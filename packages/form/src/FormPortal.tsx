@@ -1126,7 +1126,10 @@ export default function FormPortal() {
           console.warn('[FormPortal] Could not persist anti-spam cooldown timestamp:', storageErr);
         }
         clearDraftStorage();
-        setSubmittedId(newId);
+        // Show the human-readable MV#### id (see 16_application_number.sql), never the raw
+        // UUID `newId` -- that's an internal identifier used only to PATCH later steps/resume,
+        // not something an applicant should ever need to read or quote back to us.
+        setSubmittedId(response.application_id || newId);
         setSubmittedAt(new Date());
         setIsSuccess(true);
       } else {

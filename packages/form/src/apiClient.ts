@@ -46,7 +46,7 @@ export const apiClient = {
       };
     }
 
-    return { success: true, id: parsed?.id, draftToken: parsed?.draftToken };
+    return { success: true, id: parsed?.id, application_id: parsed?.application_id, draftToken: parsed?.draftToken };
   },
 
   /** Sends a 6-digit resume code to `email`, if an in-progress application exists for it. */
@@ -74,6 +74,13 @@ export const apiClient = {
     if (!response.ok) {
       return { success: false, error: parsed?.error || 'Could not verify that code. Please try again.' };
     }
-    return { success: true, id: parsed?.id, draftToken: parsed?.draftToken, currentStep: parsed?.currentStep, data: parsed?.data };
+    return {
+      success: true,
+      id: parsed?.id,
+      application_id: parsed?.application_id,
+      draftToken: parsed?.draftToken,
+      currentStep: parsed?.currentStep,
+      data: parsed?.data,
+    };
   },
 };
