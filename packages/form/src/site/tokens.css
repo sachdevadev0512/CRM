@@ -1,0 +1,179 @@
+/* Brand tokens, taken from Figma (design/tokens.json). Reference these instead of repeating hex values. */
+:root {
+  --color-primary: #65a4c5;
+  --color-primary-dark: #4f8fb1;
+  --color-heading: #1e3743;
+  --color-ink: #0a181f;
+  --color-text-soft: #8c908f;
+  --color-muted: #8e8e93;
+  --color-nav: #474948;
+  --color-answer: #686b6b;
+  --color-bg: #f8f9fd;
+  --color-white: #ffffff;
+  --color-white-60: rgba(255, 255, 255, 0.6);
+  --color-dark: #0a181f;
+  --color-chip: #18262c;
+  --color-card-border: #d8dfec;
+  --color-faq-border: #e0e0e0;
+  --color-step-border: rgba(101, 197, 182, 0.2);
+  --color-form-bg: #f4faff;
+  --color-input-border: #ced4da;
+  --color-input-text: #212529;
+  --color-label: #40566d;
+  --color-help: #768ea7;
+  --color-link: #2950da;
+  --color-upload-border: #b1c1d2;
+
+  --gradient-footer: linear-gradient(180deg, #002132 0%, #030407 100%);
+  --shadow-input: 0 0 1px rgba(33, 37, 41, 0.08), 0 2px 2px rgba(33, 37, 41, 0.06);
+
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-system: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --max-width: 1240px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-ink);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.mv-container {
+  width: 100%;
+  max-width: calc(var(--max-width) + 2rem);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (min-width: 768px) {
+  .mv-container {
+    max-width: calc(var(--max-width) + 4rem);
+    padding: 0 2rem;
+  }
+}
+
+/* Shared section heading: Helvetica 700 40/46 */
+.section-title {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-heading);
+}
+
+.section-title--light {
+  color: var(--color-white);
+}
+
+/* Buttons: Helvetica 700 16/18.4, letter-spacing 0.32px, padding 12px 18px */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 18px;
+  min-height: 48px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+.btn--outline {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.btn--outline:hover {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+/* Dark rounded panel, rebuilt from Figma layers:
+   "Swatch" = linear gradient #000 → #131d2c (bottom-left → top-right) + light-ray texture at 37%,
+   "Group 4" = 3px white dots every 23px at 8%, faded by a radial mask (solid to 37% of 523px). */
+.dark-panel {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(55deg, #000000 0%, #131d2c 100%);
+  color: var(--color-white);
+  isolation: isolate;
+}
+
+.dark-panel::before,
+.dark-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Figma: 1024px texture FILLs a 1456×997 box at (-8, -8) → scaled to 1456px, centred vertically in the box.
+   Figma image filters (saturation +0.19, temperature -0.61) have no CSS equivalent; the sepia/hue/saturate
+   chain below was tuned side by side against the Figma render to get the same cool steel-blue rays. */
+.dark-panel::before {
+  background: var(--img-dark-texture) var(--texture-x, -8px) var(--texture-y, -237.5px) / 1456px auto no-repeat;
+  opacity: 0.37;
+  filter: sepia(0.5) hue-rotate(190deg) saturate(3);
+}
+
+/* Dot grid starts 12px below the panel top; mask centre is at (669px, 15.5px) */
+.dark-panel::after {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1.5px, transparent 1.6px);
+  background-size: 23px 23px;
+  background-position: -10px 2px;
+  -webkit-mask-image: radial-gradient(circle 523px at 669px 15.5px, #000 37%, transparent 100%);
+  mask-image: radial-gradient(circle 523px at 669px 15.5px, #000 37%, transparent 100%);
+}

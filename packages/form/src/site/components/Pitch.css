@@ -1,0 +1,61 @@
+/* Figma: panel y5866 h989, top corners rounded; the footer overlaps its last 70px */
+.pitch {
+  padding: 158px 0 157px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* Two-column on wider screens: intro (heading/copy/image) beside the application
+   form; the form column grows as tall as the multi-step wizard needs. Stacks to a
+   single column on tablet/phone widths (see media query below). */
+.pitch__inner {
+  display: grid;
+  grid-template-columns: 610fr 582fr;
+  align-items: center;
+  gap: 48px;
+}
+
+.pitch__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.pitch__header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pitch__header p {
+  margin: 0;
+}
+
+.pitch__image {
+  width: 100%;
+  max-width: 610px;
+  height: auto;
+  aspect-ratio: 610 / 501;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.pitch__form {
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+@media (max-width: 1023px) {
+  .pitch__inner {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .pitch {
+    padding: 64px 0 134px;
+  }
+
+  .pitch__intro {
+    gap: 32px;
+  }
+}

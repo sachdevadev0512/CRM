@@ -1,0 +1,135 @@
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 24px 0 16px;
+  background: var(--color-bg);
+}
+
+.navbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 50px;
+}
+
+.navbar__brand {
+  flex-shrink: 0;
+}
+
+.navbar__brand img {
+  width: 167px;
+  height: 36px;
+}
+
+.navbar__links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.navbar__links a:not(.navbar__cta) {
+  color: var(--color-nav);
+  font-size: 16px;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.navbar__links a:not(.navbar__cta):hover {
+  color: var(--color-primary);
+}
+
+/* Figma: 36px between the link group and the button */
+.navbar__cta {
+  margin-left: 12px;
+  white-space: nowrap;
+}
+
+.navbar__toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.navbar__toggle span {
+  display: block;
+  height: 2px;
+  background: var(--color-heading);
+  border-radius: 2px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.navbar__toggle--open span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.navbar__toggle--open span:nth-child(2) {
+  opacity: 0;
+}
+
+.navbar__toggle--open span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+@media (max-width: 1100px) {
+  .navbar__links {
+    gap: 16px;
+  }
+
+  .navbar__cta {
+    margin-left: 4px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .navbar {
+    padding: 12px 0;
+  }
+
+  .navbar__toggle {
+    display: flex;
+  }
+
+  .navbar__links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 8px 1rem 16px;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-card-border);
+  }
+
+  .navbar__links--open {
+    display: flex;
+  }
+
+  .navbar__links a:not(.navbar__cta) {
+    padding: 12px 0;
+  }
+
+  .navbar__cta {
+    margin: 8px 0 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .navbar__brand img {
+    width: 139px;
+    height: 30px;
+  }
+}

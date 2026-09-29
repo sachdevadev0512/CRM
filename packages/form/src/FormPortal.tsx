@@ -77,6 +77,11 @@ const STEPS = [
   { title: 'Pitch Deck & Declaration', description: "Last step. Share your deck and confirm the details above are accurate.", icon: Upload },
 ];
 
+// Short display labels for the step indicator only -- STEPS[].title above (used for the
+// in-card heading and screen-reader text) is unchanged; these just keep the stepper's
+// per-step captions from wrapping onto three lines at 10px.
+const STEP_SHORT_LABELS = ['About', 'Startup', 'Funding', 'Business', 'Traction', 'Pitch Deck'];
+
 // Was a whitespace-split word count, which reads as "broken" the moment the input isn't
 // space-separated prose -- e.g. a pasted block of run-on text with no spaces counts as a single
 // "word" no matter how long it actually is, so the on-screen counter stays stuck at 1 while the
@@ -435,6 +440,11 @@ export default function FormPortal() {
   const [turnstileToken, setTurnstileToken] = useState<string>('');
   const turnstileContainerRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
+  // Scroll target for step transitions -- was `window.scrollTo(0, 0)`, which scrolled to the
+  // top of the whole page now that this form is embedded mid-page (Pitch section) rather than
+  // being the entire page itself. Scrolling this container into view instead keeps the "jump to
+  // top of form on step change" behavior correct in both contexts.
+  const formTopRef = useRef<HTMLDivElement>(null);
 
   const isLastStep = currentStep === STEPS.length - 1;
 
@@ -1007,7 +1017,7 @@ export default function FormPortal() {
       saveDraftToStorage(response.id, response.draftToken, step, merged);
       setStep1Block(null);
       closeResumePanel();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err: any) {
       setResumeState(prev => ({ ...prev, isVerifying: false, error: err.message || 'An unexpected connection error occurred.' }));
     }
@@ -1036,7 +1046,7 @@ export default function FormPortal() {
     if (applicationId && draftToken) {
       saveDraftToStorage(applicationId, draftToken, prevStep, formFields);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleAdvance = async (e: React.FormEvent) => {
@@ -1136,7 +1146,7 @@ export default function FormPortal() {
         const nextStep = currentStep + 1;
         setCurrentStep(nextStep);
         saveDraftToStorage(newId, newDraftToken, nextStep, formFields);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     } catch (err: any) {
       console.error(err);
@@ -1148,7 +1158,7 @@ export default function FormPortal() {
 
   if (isSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] px-4 py-12" id="success-view">
+      <div className="flex flex-col items-center justify-center px-4 py-10" id="success-view">
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -1185,7 +1195,7 @@ export default function FormPortal() {
           <div className="flex justify-center gap-4">
             <button
               onClick={resetAll}
-              className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-850 text-white rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2 shadow-sm"
+              className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-850 text-white rounded-full text-sm font-medium transition-colors inline-flex items-center gap-2 shadow-sm"
               id="btn-apply-another"
             >
               Apply for Another Company
@@ -1201,7 +1211,8 @@ export default function FormPortal() {
   const StepIcon = STEPS[currentStep].icon;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12" id="application-form-view">
+    <div className="max-w-3xl mx-auto px-4 py-6" id="application-form-view" ref={formTopRef}>
+      {/*
       <div className="mb-10 text-center">
         <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
           Middha Ventures Startup Intake
@@ -1210,24 +1221,61 @@ export default function FormPortal() {
           Intelligent, stage-agnostic venture capital for early-stage enterprise technology builders.
         </p>
       </div>
+      */}
 
       {/* Step indicator */}
       <div className="mb-8" id="step-indicator">
-        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
-          <span>Step {currentStep + 1} of {STEPS.length}: {STEPS[currentStep].title}</span>
-          <span>{progressPct}% complete</span>
+        {/* sm and up: numbered stepper matching the site's brand palette */}
+        <div className="hidden sm:flex items-start">
+          {STEPS.map((step, i) => {
+            const isComplete = i < currentStep;
+            const isActive = i === currentStep;
+            return (
+              <React.Fragment key={step.title}>
+                <div className="flex flex-col items-center gap-2 w-16 shrink-0 text-center">
+                  <div
+                    className={`h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 transition-colors ${
+                      isComplete
+                        ? 'bg-neutral-900 text-white'
+                        : isActive
+                        ? 'bg-neutral-900 text-white ring-4 ring-neutral-100'
+                        : 'bg-neutral-100 text-neutral-400'
+                    }`}
+                  >
+                    {isComplete ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
+                  </div>
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider leading-tight ${isActive ? 'text-neutral-900' : 'text-neutral-400'}`}>
+                    {STEP_SHORT_LABELS[i]}
+                  </span>
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div className={`flex-1 h-px mt-[18px] transition-colors ${isComplete ? 'bg-neutral-900' : 'bg-neutral-200'}`} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
-        <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-neutral-900 rounded-full transition-all duration-300"
-            style={{ width: `${progressPct}%` }}
-          />
+
+        {/* below sm: compact label + progress bar -- the numbered stepper above doesn't have
+            room to breathe at phone widths, so it's swapped for this instead. */}
+        <div className="sm:hidden">
+          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+            <span>Step {currentStep + 1} of {STEPS.length}: {STEPS[currentStep].title}</span>
+            <span>{progressPct}% complete</span>
+          </div>
+          <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-neutral-900 rounded-full transition-all duration-300"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
         </div>
+
         {applicationId && (
           <button
             type="button"
             onClick={handleStartOver}
-            className="mt-2 text-[10px] text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
+            className="mt-3 block mx-auto sm:mx-0 text-[10px] text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
             id="btn-start-over"
           >
             Start a new application instead
@@ -1235,23 +1283,8 @@ export default function FormPortal() {
         )}
       </div>
 
-      {/* Resume-by-email-OTP entry point -- only offered pre-draft, on step 1. Same-browser
-          resume (localStorage) already happens automatically, this covers a different device. */}
-      {currentStep === 0 && !applicationId && resumeState.mode === 'closed' && (
-        <div className="mb-6 text-center">
-          <button
-            type="button"
-            onClick={() => openResumePanel()}
-            className="text-xs text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
-            id="btn-open-resume"
-          >
-            Already started an application? Resume it with your email
-          </button>
-        </div>
-      )}
-
       {resumeState.mode !== 'closed' && (
-        <div className="bg-white border border-neutral-200 rounded-xl p-6 md:p-8 shadow-xs space-y-4 mb-8" id="resume-panel">
+        <div className="bg-white border border-neutral-200 rounded-2xl p-6 md:p-8 shadow-xs space-y-4 mb-8" id="resume-panel">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium text-neutral-900">Resume Your Application</h2>
             <button
@@ -1290,7 +1323,7 @@ export default function FormPortal() {
                 type="button"
                 onClick={() => handleSendResumeOtp()}
                 disabled={resumeState.isSending}
-                className="px-5 py-2 bg-neutral-900 hover:bg-neutral-850 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="px-5 py-2 bg-neutral-900 hover:bg-neutral-850 text-white rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 id="btn-send-resume-otp"
               >
                 {resumeState.isSending ? 'Sending code...' : 'Send Resume Code'}
@@ -1322,7 +1355,7 @@ export default function FormPortal() {
                   type="button"
                   onClick={handleVerifyResumeOtp}
                   disabled={resumeState.isVerifying || resumeState.otp.length !== 6}
-                  className="px-5 py-2 bg-neutral-900 hover:bg-neutral-850 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="px-5 py-2 bg-neutral-900 hover:bg-neutral-850 text-white rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   id="btn-verify-resume-otp"
                 >
                   {resumeState.isVerifying ? 'Verifying...' : 'Verify & Resume'}
@@ -1342,7 +1375,7 @@ export default function FormPortal() {
       )}
 
       {resumeState.mode === 'closed' && (
-      <form onSubmit={handleAdvance} className="space-y-8">
+      <form onSubmit={handleAdvance} className="space-y-6">
         {step1Block?.type === 'alreadySubmitted' && currentStep === 0 && (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 text-amber-800 text-sm">
             <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
@@ -1362,16 +1395,20 @@ export default function FormPortal() {
           </div>
         )}
 
-        <div className="bg-white border border-neutral-200 rounded-xl p-6 md:p-8 shadow-xs space-y-6">
-          <div className="border-b border-neutral-100 pb-3">
-            <div className="flex items-center gap-2">
-              <StepIcon className="h-5 w-5 text-neutral-500" />
-              <h2 className="text-lg font-medium text-neutral-900">{currentStep + 1}. {STEPS[currentStep].title}</h2>
+        <div className="bg-white border border-neutral-200 rounded-2xl shadow-xs overflow-hidden">
+          <div className="p-6 md:p-7 space-y-5">
+          <div className="border-b border-neutral-100 pb-5 flex items-start gap-4">
+            <div className="h-11 w-11 rounded-full bg-neutral-50 border border-neutral-200 flex items-center justify-center shrink-0">
+              <StepIcon className="h-5 w-5 text-neutral-900" />
             </div>
-            <p className="mt-1 text-xs text-neutral-500">{STEPS[currentStep].description}</p>
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Step {currentStep + 1} of {STEPS.length}</span>
+              <h2 className="text-xl font-semibold tracking-tight text-neutral-900">{STEPS[currentStep].title}</h2>
+              <p className="mt-1 text-xs text-neutral-500">{STEPS[currentStep].description}</p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* ---------------- STEP 1: ABOUT YOU ---------------- */}
             {currentStep === 0 && (
               <>
@@ -1479,7 +1516,7 @@ export default function FormPortal() {
               <>
                 <div className="md:col-span-2">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-800 mb-4">Startup Contact Details</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="space-y-1.5" id="company_name_field">
                       <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="company_name">
                         Startup Name <span className="text-red-500">*</span>
@@ -1768,7 +1805,7 @@ export default function FormPortal() {
                         key={opt}
                         type="button"
                         onClick={() => setFormFields(prev => ({ ...prev, stage: opt }))}
-                        className={`py-3 px-4 text-sm font-medium rounded-xl border text-center transition-all cursor-pointer ${
+                        className={`py-3 px-4 text-sm font-medium rounded-full border text-center transition-all cursor-pointer ${
                           formFields.stage === opt
                             ? 'bg-neutral-900 border-neutral-900 text-white font-semibold'
                             : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100'
@@ -1866,7 +1903,7 @@ export default function FormPortal() {
                           raised_before: opt,
                           ...(opt === 'No' ? { previous_round_amount: '', previous_round_valuation: '', previous_round_date: '' } : {}),
                         }))}
-                        className={`py-3 px-4 text-sm font-medium rounded-xl border text-center transition-all cursor-pointer ${
+                        className={`py-3 px-4 text-sm font-medium rounded-full border text-center transition-all cursor-pointer ${
                           formFields.raised_before === opt
                             ? 'bg-neutral-900 border-neutral-900 text-white font-semibold'
                             : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100'
@@ -2159,57 +2196,70 @@ export default function FormPortal() {
               </>
             )}
           </div>
-        </div>
-
-        {/* Hidden Cloudflare Turnstile Container -- only live on the final step */}
-        {isLastStep && (
-          <div ref={turnstileContainerRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '1px', height: '1px', overflow: 'hidden' }} />
-        )}
-
-        <div className="space-y-4 pt-2">
-          {errors.turnstile && (
-            <div className="p-3 bg-red-50 border border-red-150 rounded-lg flex items-start gap-2 text-red-750 text-xs font-sans">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{errors.turnstile}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5 text-xs text-neutral-400">
-            <Shield className="h-3.5 w-3.5" />
-            <span>Your progress is saved after every step.</span>
           </div>
 
-          <div className="flex items-center justify-between">
-            {currentStep > 0 ? (
-              <button
-                type="button"
-                onClick={handleBack}
-                className="px-5 py-2.5 bg-transparent hover:bg-neutral-50 text-neutral-600 border border-neutral-200 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2 cursor-pointer"
-                id="btn-back-step"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </button>
-            ) : <span />}
+          {/* Hidden Cloudflare Turnstile Container -- only live on the final step */}
+          {isLastStep && (
+            <div ref={turnstileContainerRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '1px', height: '1px', overflow: 'hidden' }} />
+          )}
 
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-2.5 bg-neutral-900 hover:bg-neutral-850 text-white rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              id="btn-continue-step"
-            >
-              {isSaving ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  {isLastStep ? 'Submitting...' : 'Saving...'}
-                </>
-              ) : (
-                <>
-                  {isLastStep ? 'Submit Application' : 'Continue'}
-                  <ArrowRight className="h-4 w-4" />
-                </>
+          <div className="border-t border-neutral-100 px-6 md:px-7 py-5 space-y-4">
+            {errors.turnstile && (
+              <div className="p-3 bg-red-50 border border-red-150 rounded-lg flex items-start gap-2 text-red-750 text-xs font-sans">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{errors.turnstile}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              {currentStep > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="px-5 py-2.5 bg-transparent hover:bg-neutral-50 text-neutral-600 border border-neutral-200 rounded-full text-sm font-medium transition-colors inline-flex items-center gap-2 cursor-pointer"
+                  id="btn-back-step"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+              ) : <span />}
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="px-6 py-2.5 bg-neutral-900 hover:bg-neutral-850 text-white rounded-full text-sm font-semibold transition-all inline-flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                id="btn-continue-step"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    {isLastStep ? 'Submitting...' : 'Saving...'}
+                  </>
+                ) : (
+                  <>
+                    {isLastStep ? 'Submit Application' : 'Continue'}
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between flex-wrap gap-x-4 gap-y-2 pt-1 border-t border-neutral-100 text-xs text-neutral-400">
+              <div className="flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" />
+                <span>Your progress is saved after every step.</span>
+              </div>
+              {currentStep === 0 && !applicationId && (
+                <button
+                  type="button"
+                  onClick={() => openResumePanel()}
+                  className="text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
+                  id="btn-open-resume"
+                >
+                  Resume a Saved Application
+                </button>
               )}
-            </button>
+            </div>
           </div>
         </div>
       </form>
