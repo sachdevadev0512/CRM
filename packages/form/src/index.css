@@ -1,27 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300..900;1,300..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  /* Matches the marketing site's own font stack (packages/form/src/site/tokens.css
-     --font-sans) so the embedded intake wizard reads as the same product, not a
-     separate app dropped in. */
-  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-
-  /* Re-tint Tailwind's neutral scale to the Middha Ventures brand palette (same
-     source values as packages/form/src/site/tokens.css) so the wizard's cards,
-     borders and buttons pick up the site's blue-grey identity instead of plain
-     black/grey. Only color values change here — no component markup is touched. */
-  --color-neutral-50: #f4faff;
-  --color-neutral-100: #eaf2fa;
-  --color-neutral-200: #d8dfec;
-  --color-neutral-300: #ced4da;
-  --color-neutral-400: #9fb0c2;
-  --color-neutral-500: #768ea7;
-  --color-neutral-600: #40566d;
-  --color-neutral-700: #33475a;
-  --color-neutral-800: #1e3743;
-  --color-neutral-900: #0a181f;
 }
 
 /* Custom scrollbar styling for neutral dashboards */
