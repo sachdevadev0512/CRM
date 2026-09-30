@@ -1,0 +1,147 @@
+/* Figma: padding 86px top/bottom, gap 48 */
+.portfolio {
+  padding: 86px 0;
+}
+
+.portfolio__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.portfolio__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.portfolio__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-white);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+/* Soft brand glow behind the logo, brighter on hover */
+.portfolio__logo-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  padding: 32px;
+  background:
+    radial-gradient(55% 60% at 50% 50%, rgba(101, 164, 197, 0.12) 0%, transparent 70%),
+    var(--color-bg);
+  transition: background-color 0.35s ease;
+}
+
+/* Logos differ in shape, so each is scaled from its Figma width to read at a similar visual weight */
+.portfolio__logo {
+  width: calc(var(--logo-w) * 1.6px);
+  max-width: 80%;
+  height: auto;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.portfolio__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-top: 1px solid var(--color-card-border);
+}
+
+.portfolio__meta h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.15;
+  color: var(--color-heading);
+}
+
+.portfolio__meta p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.portfolio__arrow {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 10px;
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-heading);
+  transition: background-color 0.35s ease, border-color 0.35s ease, color 0.35s ease, transform 0.35s ease;
+}
+
+.portfolio__card--link:hover,
+.portfolio__card--link:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 18px 40px -24px rgba(30, 55, 67, 0.45);
+  transform: translateY(-6px);
+}
+
+.portfolio__card--link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.portfolio__card--link:hover .portfolio__logo,
+.portfolio__card--link:focus-visible .portfolio__logo {
+  transform: scale(1.06);
+}
+
+.portfolio__card--link:hover .portfolio__arrow,
+.portfolio__card--link:focus-visible .portfolio__arrow {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-white);
+  transform: rotate(45deg);
+}
+
+@media (max-width: 1023px) {
+  .portfolio__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .portfolio {
+    padding: 64px 0;
+  }
+
+  .portfolio__inner {
+    gap: 32px;
+  }
+
+  .portfolio__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portfolio__card,
+  .portfolio__logo,
+  .portfolio__arrow {
+    transition: none;
+  }
+
+  .portfolio__card--link:hover,
+  .portfolio__card--link:focus-visible,
+  .portfolio__card--link:hover .portfolio__logo,
+  .portfolio__card--link:focus-visible .portfolio__logo {
+    transform: none;
+  }
+}

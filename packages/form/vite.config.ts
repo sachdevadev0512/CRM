@@ -9,6 +9,8 @@ export default defineConfig(() => {
     envDir: path.resolve(__dirname, '../..'),
     build: {
       outDir: 'dist',
+      // Keep hashed bundles out of dist/assets, which holds the marketing site's public images.
+      assetsDir: 'static',
       emptyOutDir: true,
     },
     server: {

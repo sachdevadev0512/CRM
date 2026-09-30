@@ -1,0 +1,203 @@
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 24px 0 16px;
+  background: var(--color-bg);
+}
+
+.navbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 50px;
+}
+
+.navbar__brand {
+  flex-shrink: 0;
+}
+
+.navbar__brand img {
+  width: 167px;
+  height: 36px;
+}
+
+.navbar__links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.navbar__links a:not(.navbar__cta) {
+  color: var(--color-nav);
+  font-size: 16px;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.navbar__links a:not(.navbar__cta):hover {
+  color: var(--color-primary);
+}
+
+/* Figma: 36px between the link group and the button. The main CTA: lifts, shines and nudges its arrow on hover */
+.navbar__cta {
+  position: relative;
+  overflow: hidden;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 12px 20px;
+  box-shadow: 0 6px 18px -8px rgba(101, 164, 197, 0.6);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
+}
+
+/* Light sweep, parked off the left edge until hover */
+.navbar__cta::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 60%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
+  transform: translateX(-120%) skewX(-20deg);
+  pointer-events: none;
+}
+
+.navbar__cta-icon {
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+
+.navbar__cta:hover,
+.navbar__cta:focus-visible {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+  box-shadow: 0 10px 24px -8px rgba(79, 143, 177, 0.75);
+  transform: translateY(-2px);
+}
+
+.navbar__cta:hover::after,
+.navbar__cta:focus-visible::after {
+  transform: translateX(260%) skewX(-20deg);
+  transition: transform 0.7s ease;
+}
+
+.navbar__cta:hover .navbar__cta-icon,
+.navbar__cta:focus-visible .navbar__cta-icon {
+  transform: translateX(3px);
+}
+
+.navbar__cta:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.navbar__toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.navbar__toggle span {
+  display: block;
+  height: 2px;
+  background: var(--color-heading);
+  border-radius: 2px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.navbar__toggle--open span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.navbar__toggle--open span:nth-child(2) {
+  opacity: 0;
+}
+
+.navbar__toggle--open span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+@media (max-width: 1100px) {
+  .navbar__links {
+    gap: 16px;
+  }
+
+  .navbar__cta {
+    margin-left: 4px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .navbar {
+    padding: 12px 0;
+  }
+
+  .navbar__toggle {
+    display: flex;
+  }
+
+  .navbar__links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 8px 1rem 16px;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-card-border);
+  }
+
+  .navbar__links--open {
+    display: flex;
+  }
+
+  .navbar__links a:not(.navbar__cta) {
+    padding: 12px 0;
+  }
+
+  .navbar__cta {
+    margin: 8px 0 0;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navbar__cta,
+  .navbar__cta-icon {
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+  }
+
+  .navbar__cta:hover,
+  .navbar__cta:focus-visible,
+  .navbar__cta:hover .navbar__cta-icon,
+  .navbar__cta:focus-visible .navbar__cta-icon {
+    transform: none;
+  }
+
+  .navbar__cta::after {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .navbar__brand img {
+    width: 139px;
+    height: 30px;
+  }
+}

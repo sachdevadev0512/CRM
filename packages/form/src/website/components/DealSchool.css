@@ -1,0 +1,218 @@
+/* DealSchool section, ported from the DealSchool site's hero (Tailwind → CSS). Its palette is scoped here, not in :root. */
+.dealschool {
+  --ds-bg: #fafaf8;
+  --ds-text: #111111;
+  --ds-gold: #d4a62a;
+  --ds-blue: #0d3b8e;
+  --ds-blue-dark: #082c6c;
+  --ds-font-heading: 'Oswald', 'Arial Narrow', sans-serif;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 86px 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.1);
+  background:
+    radial-gradient(ellipse at top, rgba(212, 166, 42, 0.03), transparent 70%),
+    var(--ds-bg);
+  color: var(--ds-text);
+}
+
+.dealschool__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.dealschool__content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 672px;
+}
+
+/* Section title uses the shared .section-title; 24px here + the 24px content gap = the site's 48px title gap */
+.dealschool__heading {
+  margin-bottom: 24px;
+}
+
+.dealschool__title {
+  margin: 0 0 8px;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.025em;
+  color: var(--ds-text);
+}
+
+.dealschool__accent {
+  color: var(--ds-gold);
+}
+
+.dealschool__title-line {
+  display: block;
+  margin-top: 12px;
+}
+
+/* Body copy matches the rest of the site (Hero subtitle, Who We Are): Helvetica 16/1.6, muted grey */
+.dealschool__text {
+  max-width: 576px;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-muted);
+}
+
+.dealschool__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 24px;
+}
+
+.dealschool__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 32px;
+  font-family: var(--ds-font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background 0.3s ease, color 0.3s ease, transform 0.3s ease;
+}
+
+.dealschool__btn--primary {
+  background: var(--ds-blue);
+  box-shadow: 0 10px 15px -3px rgba(13, 59, 142, 0.25), 0 4px 6px -4px rgba(13, 59, 142, 0.25);
+  color: var(--ds-bg);
+}
+
+.dealschool__btn--primary svg {
+  color: var(--ds-gold);
+}
+
+.dealschool__btn--primary:hover {
+  background: var(--ds-blue-dark);
+  transform: translateY(-2px);
+}
+
+.dealschool__btn--primary:active {
+  transform: none;
+}
+
+.dealschool__btn--outline {
+  border: 1px solid rgba(13, 59, 142, 0.35);
+  color: var(--ds-blue);
+}
+
+.dealschool__btn--outline:hover {
+  background: var(--ds-blue);
+  color: var(--ds-bg);
+}
+
+/* The visual comes first in the markup so it can sit behind the text on desktop; on smaller screens it drops below */
+.dealschool__visual {
+  position: relative;
+  z-index: 1;
+  order: 1;
+  margin-top: 40px;
+  padding: 0 1rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dealschool__art {
+  width: 100%;
+  max-width: 700px;
+  aspect-ratio: 16 / 10;
+  margin: 0 auto;
+  padding: 16px;
+  animation: ds-float 5s ease-in-out infinite;
+}
+
+.dealschool__art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 20px 13px rgba(0, 0, 0, 0.03)) drop-shadow(0 8px 5px rgba(0, 0, 0, 0.08));
+}
+
+/* Draws the gold line up the stairs over 3s, holds, then repeats (the source's 3s draw + 1s delay) */
+.dealschool__path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: ds-draw 4s ease-in-out infinite;
+}
+
+@keyframes ds-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes ds-draw {
+  0% { stroke-dashoffset: 1; }
+  75%, 100% { stroke-dashoffset: 0; }
+}
+
+@media (min-width: 640px) {
+  .dealschool__title {
+    font-size: 60px;
+  }
+
+  .dealschool__actions {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+@media (min-width: 768px) {
+  .dealschool__title {
+    font-size: 68px;
+    line-height: 0.9;
+  }
+
+  .dealschool__title-line {
+    margin-top: 16px;
+  }
+}
+
+/* Desktop: the illustration sits behind the right half of the section, as on the DealSchool site */
+@media (min-width: 1024px) {
+  .dealschool__visual {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+    display: flex;
+    align-items: center;
+    width: 50%;
+    margin: 0;
+    padding: 0 32px 0 0;
+    opacity: 0.85;
+  }
+}
+
+@media (max-width: 767px) {
+  .dealschool {
+    padding: 48px 0 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dealschool__art,
+  .dealschool__path,
+  .dealschool__btn {
+    animation: none;
+    transition: none;
+  }
+
+  .dealschool__path {
+    stroke-dashoffset: 0;
+  }
+}

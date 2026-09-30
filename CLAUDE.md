@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Middha Ventures Investment CRM — a production CRM for managing startup deal flow. Two front ends share one Supabase backend:
 
-- **Public form** (`/`) — `FormPortal.tsx` — anonymous founders submit startup applications, including a pitch deck upload, protected by Cloudflare Turnstile.
+- **Marketing website** (`/`) — vendored copy of github.com/sumits-code/middha-ventures in `packages/form/src/website/` (plain CSS, React JSX). Keep its code/CSS unmodified; `main.tsx` lazy-loads it only on `/` so its CSS never mixes with the form's Tailwind reset. Its "Pitch to Us" buttons link to `/applynow`.
+- **Public form** (`/applynow`) — `FormPortal.tsx` — anonymous founders submit startup applications, including a pitch deck upload, protected by Cloudflare Turnstile.
 - **Admin CRM** (`/admin/*`) — `AdminCRM.tsx` — authenticated admins review the pipeline, manage notes, export data, view audit logs, and manage other admins. Lazy-loaded so its code never ships to anonymous visitors.
 
 ## Commands

@@ -1,0 +1,301 @@
+/* Figma: section y923–1547. The right column is a dark "where we invest" card instead of a stock photo. */
+.about {
+  position: relative;
+  padding: 104px 0;
+  overflow: hidden;
+}
+
+/* Decorative logo mark: x714 y924 917×581 (the 0.12 opacity is baked into the SVG) */
+.about__decor {
+  position: absolute;
+  top: 1px;
+  left: calc(50% - 6px);
+  width: 917px;
+  max-width: none;
+  pointer-events: none;
+}
+
+.about__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 64px;
+}
+
+.about__text {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.about__title {
+  color: var(--color-heading);
+}
+
+.about__text p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+/* ---- Where-we-invest card ---- */
+.about__card {
+  --about-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin: 0;
+  padding: 32px;
+  box-shadow: 0 30px 60px -30px rgba(10, 24, 31, 0.55);
+}
+
+/* Fade the dot grid out from the card's top-right corner rather than the full-width panel centre */
+.about__card.dark-panel::after {
+  -webkit-mask-image: radial-gradient(circle 420px at 100% 0, #000 30%, transparent 100%);
+  mask-image: radial-gradient(circle 420px at 100% 0, #000 30%, transparent 100%);
+}
+
+.about__eyebrow {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.about__chart {
+  position: relative;
+  aspect-ratio: 560 / 280;
+  /* Room for the stage labels hanging below the axis */
+  margin-bottom: 18px;
+}
+
+.about__chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.about__axis,
+.about__tick {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+}
+
+.about__gap-edge {
+  stroke: rgba(101, 164, 197, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+
+.about__curve {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+/* The curve is wiped in left to right */
+.about__reveal {
+  clip-path: inset(-20px 100% -20px -20px);
+  transition: clip-path 1.8s var(--about-ease);
+}
+
+.about__curve--gap {
+  stroke: var(--color-primary);
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 8px rgba(101, 164, 197, 0.6));
+}
+
+.about__marker-halo {
+  fill: rgba(101, 164, 197, 0.22);
+}
+
+.about__marker-dot {
+  fill: var(--color-white);
+  stroke: var(--color-primary);
+  stroke-width: 2;
+}
+
+/* HTML labels, positioned with the chart's own coordinates so they stay legible at any card width */
+.about__gap-label,
+.about__marker-label,
+.about__stage {
+  position: absolute;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.about__gap-label {
+  transform: translate(-50%, 8px);
+  padding: 4px 10px;
+  border: 1px solid rgba(101, 164, 197, 0.4);
+  border-radius: var(--radius-pill);
+  background: rgba(101, 164, 197, 0.12);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-white);
+}
+
+.about__marker-label {
+  transform: translate(calc(-100% - 14px), calc(-100% - 6px));
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-white);
+}
+
+.about__stage {
+  transform: translate(-50%, 12px);
+  font-size: 12px;
+  color: var(--color-white-60);
+}
+
+.about__stage--gap {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.about__pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.about__pillar {
+  padding: 20px 16px 0;
+}
+
+.about__pillar:first-child {
+  padding-left: 0;
+}
+
+.about__pillar + .about__pillar {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.about__pillar dt {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-white);
+}
+
+.about__pillar dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-white-60);
+}
+
+/* Entrance: the band, markers and labels settle in while the curve draws */
+.about__gap,
+.about__gap-edge,
+.about__marker,
+.about__gap-label,
+.about__marker-label,
+.about__pillar {
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s var(--about-ease);
+}
+
+.about__marker {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0.4);
+}
+
+.about__pillar {
+  transform: translateY(8px);
+}
+
+.about__card--visible .about__reveal {
+  clip-path: inset(-20px -20px -20px -20px);
+}
+
+.about__card--visible .about__gap,
+.about__card--visible .about__gap-edge,
+.about__card--visible .about__gap-label,
+.about__card--visible .about__marker-label,
+.about__card--visible .about__pillar {
+  opacity: 1;
+}
+
+.about__card--visible .about__marker {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.about__card--visible .about__pillar {
+  transform: none;
+}
+
+.about__card--visible .about__gap,
+.about__card--visible .about__gap-edge,
+.about__card--visible .about__gap-label {
+  transition-delay: 0.2s;
+}
+
+.about__card--visible .about__marker,
+.about__card--visible .about__marker-label {
+  transition-delay: var(--about-delay);
+}
+
+.about__card--visible .about__pillar:nth-child(1) { transition-delay: 1.3s; }
+.about__card--visible .about__pillar:nth-child(2) { transition-delay: 1.45s; }
+.about__card--visible .about__pillar:nth-child(3) { transition-delay: 1.6s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .about__card * {
+    transition: none !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .about__inner {
+    gap: 40px;
+  }
+
+  .about__card {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  .about {
+    padding: 64px 0;
+  }
+
+  .about__inner {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .about__gap-label {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .about__marker-label {
+    font-size: 11px;
+  }
+
+  .about__stage {
+    font-size: 11px;
+  }
+
+  .about__pillar {
+    padding: 16px 10px 0;
+  }
+
+  .about__pillar dt {
+    font-size: 16px;
+  }
+
+  .about__pillar dd {
+    font-size: 12px;
+  }
+}
